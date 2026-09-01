@@ -239,29 +239,7 @@ struct ContentView: View {
                     .padding(12)
                 }
             } else if model.isConnected {
-                ZStack {
-                    RemoteDesktopView(
-                        frame: model.currentFrame,
-                        isInteractive: false,
-                        onActivate: enterControl
-                    ) { _ in }
-                    .background(Color.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    if model.currentFrame == nil {
-                        ProgressView("正在等待画面")
-                            .padding()
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        VStack {
-                            Spacer()
-                            Label("点击预览进入控制", systemImage: "arrow.up.left.and.arrow.down.right")
-                                .padding(8)
-                                .background(.regularMaterial, in: Capsule())
-                                .padding(16)
-                        }
-                    }
-                }
+                devicePreview
             } else if model.isConnecting {
                 ContentUnavailableView {
                     Label("正在连接预览", systemImage: "display")
@@ -291,6 +269,75 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var devicePreview: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "laptopcomputer")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selectedDevice?.name ?? "远程 Mac")
+                        .font(.headline)
+                    Label("实时预览 · 只读", systemImage: "eye.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button(action: enterControl) {
+                    Label("进入控制", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.currentFrame == nil)
+            }
+
+            ZStack {
+                RemoteDesktopView(
+                    frame: model.currentFrame,
+                    isInteractive: false,
+                    onActivate: enterControl
+                ) { _ in }
+                .background(Color.black)
+
+                if model.currentFrame == nil {
+                    ProgressView("正在等待画面")
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                        .padding()
+                        .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                } else {
+                    Button(action: enterControl) {
+                        Label("点击进入控制", systemImage: "hand.tap.fill")
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .aspectRatio(previewAspectRatio, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(.primary.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
+
+            Text("预览不会向对方发送鼠标或键盘操作")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: 1100, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var previewAspectRatio: CGFloat {
+        guard let frame = model.currentFrame, frame.height > 0 else { return 16 / 10 }
+        return CGFloat(frame.width) / CGFloat(frame.height)
     }
 
     private var permissionsView: some View {
