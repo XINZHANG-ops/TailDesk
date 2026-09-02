@@ -290,6 +290,13 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    func endControl() {
+        guard sessionState == .controlling else { return }
+        viewerClipboardSync?.stop()
+        sessionState = .previewing
+        setStatus("Live preview · read-only", isError: false)
+    }
+
     func sendInput(_ event: RemoteInputEvent) {
         guard sessionState == .controlling else { return }
         var event = event

@@ -165,11 +165,7 @@ struct ContentView: View {
                     self.selection = .host
                     return
                 }
-                previewTask = Task {
-                    try? await Task.sleep(nanoseconds: 350_000_000)
-                    guard !Task.isCancelled else { return }
-                    if !model.connectViewer(to: id) { self.selection = .host }
-                }
+                schedulePreview(for: id)
             default:
                 break
             }
@@ -400,7 +396,7 @@ struct ContentView: View {
 
     private var exitControlButton: some View {
         Button {
-            leaveRemoteSession()
+            leaveControlToPreview()
         } label: {
             Label("退出", systemImage: "xmark")
                 .font(.caption.weight(.semibold))
@@ -539,6 +535,23 @@ struct ContentView: View {
                 edgeControlsVisible = false
             }
         }
+    }
+
+    private func schedulePreview(for deviceID: String) {
+        previewTask?.cancel()
+        previewTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, selection == .device(deviceID), !model.isBeingControlled else { return }
+            if !model.connectViewer(to: deviceID) { selection = .host }
+        }
+    }
+
+    private func leaveControlToPreview() {
+        model.endControl()
+        edgeControlsHideTask?.cancel()
+        edgeControlsVisible = false
+        immersive = false
+        columnVisibility = .all
     }
 
     private func leaveRemoteSession(selecting item: SidebarItem? = nil) {
