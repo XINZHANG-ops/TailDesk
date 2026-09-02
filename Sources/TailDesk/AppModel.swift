@@ -78,7 +78,13 @@ final class AppModel: ObservableObject {
                 }
             }
         }
-        server.onInput = { event in InputInjector.post(event) }
+        server.onInput = { [weak self] event in
+            guard event.kind == .requestKeyFrame else {
+                InputInjector.post(event)
+                return
+            }
+            Task { @MainActor in self?.captureSession?.requestKeyFrame() }
+        }
         server.onClipboard = { [weak clipboard] data in
             Task { @MainActor in clipboard?.receive(data) }
         }

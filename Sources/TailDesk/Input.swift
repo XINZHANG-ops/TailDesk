@@ -177,7 +177,7 @@ enum InputInjector {
             event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(remote.keyCode), keyDown: true)
         case .keyUp:
             event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(remote.keyCode), keyDown: false)
-        case .text:
+        case .text, .requestKeyFrame:
             event = nil
         }
         event?.flags = flags

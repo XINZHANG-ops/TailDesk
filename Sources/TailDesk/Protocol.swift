@@ -78,6 +78,7 @@ struct RemoteInputEvent: Codable {
         case keyDown
         case keyUp
         case text
+        case requestKeyFrame
     }
 
     var kind: Kind
@@ -169,6 +170,8 @@ enum ProtocolSelfCheck {
         let doubleClick = RemoteInputEvent(kind: .leftMouseDown, clickCount: 2)
         let decodedClick = try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(doubleClick))
         precondition(decodedClick.clickCount == 2)
+        let keyFrameRequest = RemoteInputEvent(kind: .requestKeyFrame)
+        precondition(try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(keyFrameRequest)).kind == .requestKeyFrame)
         precondition(WireMessage(rawValue: 7) == .audioFrame)
     }
 }

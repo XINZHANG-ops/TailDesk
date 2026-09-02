@@ -127,6 +127,11 @@ final class MobileAppModel: ObservableObject {
         setStatus("远程控制中", isError: false)
     }
 
+    func resumeVideo() {
+        guard phase == .previewing || phase == .controlling else { return }
+        client?.sendInput(RemoteInputEvent(kind: .requestKeyFrame))
+    }
+
     func disconnect() {
         disconnect(endingIn: .idle)
         setStatus("等待连接", isError: false)

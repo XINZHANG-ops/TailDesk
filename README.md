@@ -45,8 +45,8 @@ The QR code contains only the online Macs' MagicDNS names. It contains no IP
 address, password, pairing key, or Tailscale credential. The iPhone supports
 single-finger pointer movement, tap-to-click, double-tap-to-double-click, tap-then-hold dragging,
 two-finger right-click and scrolling, remote text input, and clipboard text or
-one regular file up to 16 MB. The session disconnects when the app enters the
-background.
+one regular file up to 16 MB. The connection stays active for background audio;
+returning to the app requests a fresh video key frame so the picture resumes.
 
 While connected, clipboard text and one regular file up to 16 MB synchronize
 in either direction. Received files are stored under TailDesk's Application
