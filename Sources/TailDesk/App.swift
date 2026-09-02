@@ -254,6 +254,15 @@ struct ContentView: View {
                     }
                     .padding(.top, 4)
                     .animation(.snappy(duration: 0.2), value: edgeControlsVisible)
+
+                    if model.clipboardTransferName != nil {
+                        VStack {
+                            Spacer()
+                            clipboardProgressView
+                                .padding(.bottom, 16)
+                        }
+                        .allowsHitTesting(false)
+                    }
                 }
             } else if model.isConnected {
                 devicePreview
@@ -348,8 +357,8 @@ struct ContentView: View {
             }
             .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
 
-            if model.status.localizedCaseInsensitiveContains("clipboard item") {
-                statusView
+            if model.clipboardTransferName != nil {
+                clipboardProgressView
             } else {
                 Text("预览不会向对方发送鼠标或键盘操作")
                     .font(.caption)
@@ -519,6 +528,43 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Spacer()
         }
+    }
+
+    private var clipboardProgressView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: model.clipboardTransferProgress == 1 ? "checkmark.circle.fill" : "folder.badge.arrow.down")
+                    .foregroundStyle(model.clipboardTransferProgress == 1 ? .green : .blue)
+                Text(model.clipboardTransferProgress == 1
+                     ? "\(model.clipboardTransferName ?? "文件") 已可粘贴"
+                     : "正在接收 \(model.clipboardTransferName ?? "文件")")
+                    .font(.callout.weight(.medium))
+                Spacer()
+                if let progress = model.clipboardTransferProgress {
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if model.clipboardTransferProgress == 1 && !model.isControlling {
+                    Button("重新放入剪贴板") { model.restoreReceivedClipboard() }
+                        .buttonStyle(.bordered)
+                }
+            }
+            if let progress = model.clipboardTransferProgress {
+                ProgressView(value: progress)
+            } else {
+                ProgressView()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 420)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.primary.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
     }
 
     private func enterControl() {

@@ -30,6 +30,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedRemoteDisplayID: UInt32?
     @Published var launchAtLoginWarning: String?
     @Published var phoneImportURL: URL?
+    @Published private(set) var clipboardTransferName: String?
+    @Published private(set) var clipboardTransferProgress: Double?
 
     let tailscaleAddress = localTailscaleIPv4() ?? "Not detected"
 
@@ -123,7 +125,8 @@ final class AppModel: ObservableObject {
             }
             server.sendClipboard(data, completion: completion)
         }
-        clipboard.onStatus = statusHandler
+        clipboard.onStatus = clipboardStatusHandler
+        clipboard.onProgress = clipboardProgressHandler
 
         do {
             try server.start()
@@ -224,7 +227,8 @@ final class AppModel: ObservableObject {
             }
             client.sendClipboard(data, completion: completion)
         }
-        clipboard.onStatus = statusHandler
+        clipboard.onStatus = clipboardStatusHandler
+        clipboard.onProgress = clipboardProgressHandler
         client.connect(host: device.address)
         status = "Connecting to \(device.name)"
         statusIsError = false
@@ -283,6 +287,8 @@ final class AppModel: ObservableObject {
         if sessionState == .dialing || sessionState.isViewerConnected {
             sessionState = isHosting ? .available : .idle
         }
+        clipboardTransferName = nil
+        clipboardTransferProgress = nil
         if hadViewerSession { setStatus("Ready", isError: false) }
     }
 
@@ -294,6 +300,10 @@ final class AppModel: ObservableObject {
     @discardableResult
     func beginControl() -> Bool {
         guard sessionState == .previewing else { return false }
+        if clipboardTransferProgress == 1 {
+            clipboardTransferName = nil
+            clipboardTransferProgress = nil
+        }
         sessionState = .controlling
         viewerClipboardSync?.start()
         setStatus("Remote control active", isError: false)
@@ -307,6 +317,14 @@ final class AppModel: ObservableObject {
         if !status.localizedCaseInsensitiveContains("clipboard item") {
             setStatus("Live preview · read-only", isError: false)
         }
+    }
+
+    func restoreReceivedClipboard() {
+        guard viewerClipboardSync?.restoreLastReceivedFile() == true else {
+            setStatus("No received file is available to restore", isError: true)
+            return
+        }
+        clipboardTransferProgress = 1
     }
 
     func sendInput(_ event: RemoteInputEvent) {
@@ -402,6 +420,27 @@ final class AppModel: ObservableObject {
     private var statusHandler: (String, Bool) -> Void {
         { [weak self] message, isError in
             Task { @MainActor in self?.setStatus(message, isError: isError) }
+        }
+    }
+
+    private var clipboardStatusHandler: (String, Bool) -> Void {
+        { [weak self] message, isError in
+            Task { @MainActor in
+                self?.setStatus(message, isError: isError)
+                if isError {
+                    self?.clipboardTransferName = nil
+                    self?.clipboardTransferProgress = nil
+                }
+            }
+        }
+    }
+
+    private var clipboardProgressHandler: (String, Double?) -> Void {
+        { [weak self] name, progress in
+            Task { @MainActor in
+                self?.clipboardTransferName = name
+                self?.clipboardTransferProgress = progress
+            }
         }
     }
 

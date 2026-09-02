@@ -216,9 +216,11 @@ private final class ClipboardTransferGate: @unchecked Sendable {
 final class ClipboardSync {
     var onSend: ClipboardWireSender = { _, completion in completion(false) }
     var onStatus: (String, Bool) -> Void = { _, _ in }
+    var onProgress: (String, Double?) -> Void = { _, _ in }
 
     private var timer: Timer?
     private var lastChangeCount = NSPasteboard.general.changeCount
+    private var lastReceivedFileURL: URL?
     private let sendQueue = DispatchQueue(label: "TailDesk.ClipboardSend", qos: .utility)
     private nonisolated let transferGate = ClipboardTransferGate()
     private nonisolated let receiver = ClipboardTransferReceiver()
@@ -273,6 +275,7 @@ final class ClipboardSync {
                     self?.putTextOnPasteboard(text)
                 case .file(let url):
                     self?.putFileOnPasteboard(url)
+                    self?.onProgress(url.lastPathComponent, 1)
                     self?.onStatus("Clipboard item ready: \(url.lastPathComponent)", false)
                 }
             }
@@ -280,6 +283,9 @@ final class ClipboardSync {
             DispatchQueue.main.async { self?.onStatus(message, isError) }
         }, onStart: { [weak self] in
             DispatchQueue.main.async { self?.clearPasteboardForIncomingFile() }
+        }, onProgress: { [weak self] name, received, total in
+            let progress = total.flatMap { $0 > 0 ? Double(received) / Double($0) : 0 }
+            DispatchQueue.main.async { self?.onProgress(name, progress) }
         }, onReject: { [weak self] id in
             DispatchQueue.main.async { self?.sendCancellation(id) }
         })
@@ -358,6 +364,16 @@ final class ClipboardSync {
         pasteboard.clearContents()
         pasteboard.writeObjects([url as NSURL])
         lastChangeCount = pasteboard.changeCount
+        lastReceivedFileURL = url
+    }
+
+    @discardableResult
+    func restoreLastReceivedFile() -> Bool {
+        guard let url = lastReceivedFileURL,
+              FileManager.default.fileExists(atPath: url.path) else { return false }
+        putFileOnPasteboard(url)
+        onStatus("Clipboard item restored: \(url.lastPathComponent)", false)
+        return true
     }
 
     private func clearPasteboardForIncomingFile() {
@@ -425,10 +441,9 @@ private enum ClipboardTransferSender {
             id: id,
             name: url.lastPathComponent,
             isDirectory: isDirectory,
-            // Start folders immediately. Each file still declares its exact size as it streams.
-            size: isDirectory ? 0 : UInt64(values.fileSize ?? 0),
+            size: isDirectory ? try folderSize(url, isCancelled: isCancelled) : UInt64(values.fileSize ?? 0),
             permissions: permissions(at: url),
-            streamsUnknownSize: isDirectory ? true : nil
+            streamsUnknownSize: nil
         )
         guard !isCancelled() else { throw ClipboardError.transferCancelled }
         try sendPacket(.start, payload: ClipboardTransferCodec.encodeStart(start), using: wireSend)
@@ -467,6 +482,22 @@ private enum ClipboardTransferSender {
         }
         semaphore.wait()
         guard succeeded else { throw ClipboardError.transferDisconnected }
+    }
+
+    private static func folderSize(_ url: URL, isCancelled: () -> Bool) throws -> UInt64 {
+        var total: UInt64 = 0
+        try enumerate(url) { _, _, values in
+            guard !isCancelled() else { throw ClipboardError.transferCancelled }
+            guard values.isSymbolicLink != true else { throw ClipboardError.unsupportedItem }
+            if values.isRegularFile == true {
+                let (sum, overflow) = total.addingReportingOverflow(UInt64(values.fileSize ?? 0))
+                guard !overflow else { throw ClipboardError.invalidTransfer }
+                total = sum
+            } else if values.isDirectory != true {
+                throw ClipboardError.unsupportedItem
+            }
+        }
+        return total
     }
 
     private static func sendFolder(
@@ -586,6 +617,7 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
         onComplete: @escaping (ClipboardReceipt) -> Void,
         onStatus: @escaping (String, Bool) -> Void,
         onStart: @escaping () -> Void = {},
+        onProgress: @escaping (String, UInt64, UInt64?) -> Void = { _, _, _ in },
         onReject: @escaping (UUID) -> Void = { _ in }
     ) {
         queue.async {
@@ -601,6 +633,11 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
                     packetID = metadata.id
                     try self.start(metadata)
                     onStart()
+                    onProgress(
+                        metadata.name,
+                        0,
+                        metadata.streamsUnknownSize == true ? nil : metadata.size
+                    )
                     onStatus("Receiving clipboard item: \(metadata.name)", false)
                 case .item:
                     let item = try ClipboardTransferCodec.decodeItem(payload)
@@ -609,7 +646,8 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
                 case .chunk:
                     let (id, data) = try ClipboardTransferCodec.decodeChunk(payload)
                     packetID = id
-                    try self.write(data, id: id)
+                    let progress = try self.write(data, id: id)
+                    onProgress(progress.name, progress.received, progress.total)
                 case .finish:
                     let id = try ClipboardTransferCodec.decodeFinish(payload)
                     packetID = id
@@ -704,13 +742,14 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
         try finishCurrentFile(incoming)
     }
 
-    private func write(_ data: Data, id: UUID) throws {
+    private func write(_ data: Data, id: UUID) throws -> (name: String, received: UInt64, total: UInt64?) {
         guard let incoming, incoming.metadata.id == id, let handle = incoming.handle,
               UInt64(data.count) <= incoming.currentRemaining else { throw ClipboardError.invalidTransfer }
         try handle.write(contentsOf: data)
         incoming.currentRemaining -= UInt64(data.count)
         incoming.received += UInt64(data.count)
         try finishCurrentFile(incoming)
+        return (incoming.metadata.name, incoming.received, incoming.expected)
     }
 
     private func finish(_ id: UUID) throws -> URL {
@@ -882,6 +921,9 @@ enum ClipboardSelfCheck {
         var receivedURL: URL?
         var receiveError = false
         var didStart = false
+        var sawInitialProgress = false
+        var finalReceived: UInt64 = 0
+        var reportedTotal: UInt64?
         try! ClipboardTransferSender.send(source, using: { data, completion in
             precondition(data.count <= ClipboardTransferCodec.maximumChunkSize + 128)
             let messages = try! WireParser().append(WireCodec.frame(.clipboard, payload: data))
@@ -898,6 +940,11 @@ enum ClipboardSelfCheck {
             }, onStart: {
                 precondition(!didStart)
                 didStart = true
+            }, onProgress: { name, received, total in
+                precondition(name == "source")
+                if received == 0 { sawInitialProgress = true }
+                finalReceived = received
+                reportedTotal = total
             })
             completion(true)
         })
@@ -905,6 +952,9 @@ enum ClipboardSelfCheck {
         let restored = receivedURL!
         precondition(restored.lastPathComponent == "source")
         precondition(restored.deletingLastPathComponent().lastPathComponent.hasPrefix(".received-"))
+        precondition(sawInitialProgress)
+        precondition(finalReceived == UInt64(sourceData.count))
+        precondition(reportedTotal == UInt64(sourceData.count))
         precondition(try! Data(contentsOf: restored.appendingPathComponent("nested/file.txt")) == sourceData)
         var isDirectory: ObjCBool = false
         precondition(fileManager.fileExists(atPath: restored.appendingPathComponent("empty").path, isDirectory: &isDirectory) && isDirectory.boolValue)
