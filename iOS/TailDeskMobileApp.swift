@@ -407,53 +407,88 @@ private struct RemoteSessionView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 7) {
             Button {
                 model.disconnect()
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
+                controlBarTile("xmark", color: .red)
             }
-
-            Text(device.name)
-                .font(.callout.bold())
-                .lineLimit(1)
-
-            Spacer()
+            .accessibilityLabel("退出控制")
 
             if model.phase == .controlling {
+                Spacer(minLength: 0)
+
                 Button { keyboardActive.toggle() } label: {
-                    Image(systemName: "keyboard")
+                    controlBarTile(keyboardActive ? "keyboard.fill" : "keyboard", color: .blue, isActive: keyboardActive)
                 }
+                .accessibilityLabel(keyboardActive ? "收起键盘" : "打开键盘")
+
                 Button(action: toggleDictation) {
-                    Image(systemName: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
+                    controlBarTile(dictation.isRecording ? "stop.fill" : "mic.fill", color: .cyan, isActive: dictation.isRecording)
                 }
                 .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "语音输入")
+
                 Button(action: toggleDictationLanguage) {
                     Text(dictationLocale == "zh-CN" ? "中" : "EN")
                         .font(.caption.bold())
+                        .foregroundStyle(.purple)
+                        .frame(width: 44, height: 44)
+                        .background(.purple.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(.purple.opacity(0.5), lineWidth: 1)
+                        }
                 }
                 .disabled(dictation.isRecording)
                 .accessibilityLabel("语音语言：\(dictationLanguageName)")
+
                 Button { model.sendPhoneClipboard() } label: {
-                    Image(systemName: "doc.on.clipboard")
+                    controlBarTile("doc.on.clipboard.fill", color: .orange)
                 }
+                .accessibilityLabel("粘贴手机文本")
+
                 Button(action: toggleRotation) {
-                    Image(systemName: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left")
+                    controlBarTile(rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left", color: .indigo)
                 }
                 .accessibilityLabel(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向")
+
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
-                        Image(systemName: "square.and.arrow.up")
+                        controlBarTile("square.and.arrow.up.fill", color: .green)
                     }
+                    .accessibilityLabel("分享收到的文件")
                 }
+            } else {
+                Text(device.name)
+                    .font(.callout.bold())
+                    .lineLimit(1)
+                Spacer()
             }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(.black.opacity(0.65))
+        .buttonStyle(.plain)
         .foregroundStyle(.white)
-        .padding(12)
-        .background(.ultraThinMaterial)
+        .padding(8)
+        .background(Color(red: 0.025, green: 0.055, blue: 0.12).opacity(0.94), in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(.cyan.opacity(0.3), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+    }
+
+    private func controlBarTile(_ systemImage: String, color: Color, isActive: Bool = false) -> some View {
+        Image(systemName: systemImage)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(isActive ? .white : color)
+            .frame(width: 44, height: 44)
+            .background(color.opacity(isActive ? 0.72 : 0.18), in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(color.opacity(isActive ? 0.9 : 0.5), lineWidth: 1)
+            }
     }
 
     private var statusPanel: some View {
