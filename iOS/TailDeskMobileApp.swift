@@ -161,6 +161,7 @@ private struct RemoteSessionView: View {
     @StateObject private var dictation = VoiceDictation()
     @State private var keyboardActive = false
     @State private var rotationQuarterTurns = 0
+    @State private var compactMenuVisible = false
 
     var body: some View {
         ZStack {
@@ -211,6 +212,15 @@ private struct RemoteSessionView: View {
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
 
+            if compactMenuVisible && model.phase == .controlling && usesCompactControls {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .onTapGesture { compactMenuVisible = false }
+
+                compactMenuPanel
+                    .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
+            }
+
             if dictation.isRecording {
                 Text(dictation.transcript.isEmpty ? "正在聆听（\(dictationLanguageName)）…再点一次发送" : dictation.transcript)
                     .font(.callout)
@@ -231,7 +241,10 @@ private struct RemoteSessionView: View {
             model.disconnect()
         }
         .onChange(of: model.phase) { _, phase in
-            if phase != .controlling { dictation.cancel() }
+            if phase != .controlling {
+                dictation.cancel()
+                compactMenuVisible = false
+            }
         }
         .alert("语音输入", isPresented: Binding(
             get: { dictation.errorMessage != nil },
@@ -244,30 +257,8 @@ private struct RemoteSessionView: View {
     }
 
     private var compactControlMenu: some View {
-        Menu {
-            Section(device.name) {
-                Button("键盘", systemImage: "keyboard") { keyboardActive.toggle() }
-                Button(dictation.isRecording ? "停止并发送语音" : "语音输入（\(dictationLanguageName)）", systemImage: dictation.isRecording ? "stop.circle.fill" : "mic.fill") {
-                    toggleDictation()
-                }
-                Button(dictationLocale == "zh-CN" ? "切换到 English" : "切换到中文", systemImage: "globe") {
-                    toggleDictationLanguage()
-                }
-                .disabled(dictation.isRecording)
-                Button("粘贴手机文本", systemImage: "doc.on.clipboard") { model.sendPhoneClipboard() }
-                Button(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向", systemImage: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left") {
-                    toggleRotation()
-                }
-                if let file = model.receivedFileURL {
-                    ShareLink(item: file) {
-                        Label("分享收到的文件", systemImage: "square.and.arrow.up")
-                    }
-                }
-            }
-            Button("退出控制", systemImage: "xmark", role: .destructive) {
-                model.disconnect()
-                dismiss()
-            }
+        Button {
+            compactMenuVisible.toggle()
         } label: {
             Image(systemName: "ellipsis")
                 .font(.headline)
@@ -276,6 +267,84 @@ private struct RemoteSessionView: View {
                 .foregroundStyle(.white)
         }
         .accessibilityLabel("控制菜单")
+    }
+
+    private var compactMenuPanel: some View {
+        VStack(spacing: 8) {
+            Text(device.name)
+                .font(.headline)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider().overlay(.white.opacity(0.35))
+
+            Button {
+                keyboardActive.toggle()
+                compactMenuVisible = false
+            } label: {
+                Label("键盘", systemImage: "keyboard")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button {
+                toggleDictation()
+                compactMenuVisible = false
+            } label: {
+                Label(dictation.isRecording ? "停止并发送语音" : "语音输入（\(dictationLanguageName)）", systemImage: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button {
+                toggleDictationLanguage()
+                compactMenuVisible = false
+            } label: {
+                Label(dictationLocale == "zh-CN" ? "切换到 English" : "切换到中文", systemImage: "globe")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(dictation.isRecording)
+
+            Button {
+                model.sendPhoneClipboard()
+                compactMenuVisible = false
+            } label: {
+                Label("粘贴手机文本", systemImage: "doc.on.clipboard")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button {
+                toggleRotation()
+                compactMenuVisible = false
+            } label: {
+                Label(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向", systemImage: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let file = model.receivedFileURL {
+                ShareLink(item: file) {
+                    Label("分享收到的文件", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            Button(role: .destructive) {
+                model.disconnect()
+                dismiss()
+            } label: {
+                Label("退出控制", systemImage: "xmark")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(.white)
+        .foregroundStyle(.white)
+        .padding(14)
+        .frame(width: 280)
+        .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(.white.opacity(0.3), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
     private var controlBar: some View {

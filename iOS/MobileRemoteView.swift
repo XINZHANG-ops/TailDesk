@@ -41,7 +41,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private let imageLayer = CALayer()
-    private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 132, height: 132))
+    private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 144, height: 144))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -225,7 +225,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         }
         magnifier.sourcePoint = point
         let half = magnifier.bounds.width / 2
-        let gap = half + 42
+        let gap = half + 18
         let preferredY = point.y - gap
         magnifier.center = CGPoint(
             x: min(bounds.maxX - half - 8, max(bounds.minX + half + 8, point.x)),
@@ -250,7 +250,7 @@ private final class PrecisionMagnifier: UIView {
         isUserInteractionEnabled = false
         backgroundColor = .black
         layer.cornerRadius = frame.width / 2
-        layer.borderWidth = 3
+        layer.borderWidth = 4
         layer.borderColor = UIColor.white.cgColor
         clipsToBounds = true
     }
@@ -267,13 +267,21 @@ private final class PrecisionMagnifier: UIView {
         snapshot.draw(at: .zero)
         context.restoreGState()
 
+        let innerFrame = UIBezierPath(ovalIn: bounds.insetBy(dx: 6, dy: 6))
+        UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.8).setStroke()
+        innerFrame.lineWidth = 2
+        innerFrame.stroke()
+
         let crosshair = UIBezierPath()
         crosshair.move(to: CGPoint(x: bounds.midX - 12, y: bounds.midY))
         crosshair.addLine(to: CGPoint(x: bounds.midX + 12, y: bounds.midY))
         crosshair.move(to: CGPoint(x: bounds.midX, y: bounds.midY - 12))
         crosshair.addLine(to: CGPoint(x: bounds.midX, y: bounds.midY + 12))
-        UIColor.systemBlue.setStroke()
-        crosshair.lineWidth = 2
+        UIColor.white.withAlphaComponent(0.9).setStroke()
+        crosshair.lineWidth = 5
+        crosshair.stroke()
+        UIColor(red: 0.01, green: 0.07, blue: 0.17, alpha: 1).setStroke()
+        crosshair.lineWidth = 2.5
         crosshair.stroke()
     }
 }
