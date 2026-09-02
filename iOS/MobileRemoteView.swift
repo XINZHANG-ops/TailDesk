@@ -135,6 +135,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(Self.edgeReach(0.06) == 0)
         assert(abs(Self.edgeReach(0.18) - 0.18) < 0.0001)
         assert(abs(Self.edgeReach(0.94) - 1) < 0.0001)
+        assert(Self.scrollDelta(for: CGPoint(x: 2, y: 3), quarterTurns: 0) == CGPoint(x: -8, y: -12))
+        assert(Self.scrollDelta(for: CGPoint(x: 2, y: 3), quarterTurns: 3) == CGPoint(x: -12, y: 8))
         let phoneBounds = CGRect(x: 0, y: 0, width: 390, height: 844)
         let topLeftLens = Self.magnifierCenter(
             near: CGPoint(x: 20, y: 20),
@@ -341,12 +343,23 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         guard sender.state == .changed else { return }
         let translation = sender.translation(in: self)
         sender.setTranslation(.zero, in: self)
+        let delta = Self.scrollDelta(for: translation, quarterTurns: rotationQuarterTurns)
         sendInput(RemoteInputEvent(
             kind: .scroll,
             flags: RemoteModifier.preciseScroll,
-            deltaX: translation.x * 2,
-            deltaY: translation.y * 2
+            deltaX: delta.x,
+            deltaY: delta.y
         ))
+    }
+
+    private static func scrollDelta(for translation: CGPoint, quarterTurns: Int) -> CGPoint {
+        let unrotated = switch quarterTurns % 4 {
+        case 1: CGPoint(x: -translation.y, y: translation.x)
+        case 2: CGPoint(x: -translation.x, y: -translation.y)
+        case 3: CGPoint(x: translation.y, y: -translation.x)
+        default: translation
+        }
+        return CGPoint(x: -unrotated.x * 4, y: -unrotated.y * 4)
     }
 
     private func send(_ kind: RemoteInputEvent.Kind, _ point: CGPoint, clickCount: Int? = nil) {
