@@ -152,21 +152,17 @@ final class MobileAppModel: ObservableObject {
         sendInput(RemoteInputEvent(kind: .keyUp, keyCode: keyCode))
     }
 
-    func sendPhoneClipboard() {
-        guard let text = UIPasteboard.general.string, !text.isEmpty else {
-            setStatus("iPhone 剪贴板里没有文本", isError: true)
-            return
-        }
-        sendClipboard(.text(text))
+    func copyRemoteSelection() {
+        sendShortcut(keyCode: 8) // macOS C
     }
 
-    private func sendClipboard(_ content: ClipboardContent) {
-        do {
-            client?.sendClipboard(try ClipboardCodec.encode(content))
-            setStatus("已发送到远端剪贴板", isError: false)
-        } catch {
-            setStatus(error.localizedDescription, isError: true)
-        }
+    func pasteRemoteClipboard() {
+        sendShortcut(keyCode: 9) // macOS V
+    }
+
+    private func sendShortcut(keyCode: UInt16) {
+        sendInput(RemoteInputEvent(kind: .keyDown, keyCode: keyCode, flags: RemoteModifier.command))
+        sendInput(RemoteInputEvent(kind: .keyUp, keyCode: keyCode, flags: RemoteModifier.command))
     }
 
     private func receiveClipboard(_ data: Data) {

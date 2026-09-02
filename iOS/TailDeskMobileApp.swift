@@ -366,10 +366,17 @@ private struct RemoteSessionView: View {
                 .disabled(dictation.isRecording)
 
                 Button {
-                    model.sendPhoneClipboard()
+                    model.copyRemoteSelection()
                     compactMenuVisible = false
                 } label: {
-                    compactMenuTile("粘贴文本", systemImage: "doc.on.clipboard.fill", color: .orange)
+                    compactMenuTile("复制", systemImage: "doc.on.doc.fill", color: .green)
+                }
+
+                Button {
+                    model.pasteRemoteClipboard()
+                    compactMenuVisible = false
+                } label: {
+                    compactMenuTile("粘贴", systemImage: "doc.on.clipboard.fill", color: .orange)
                 }
 
                 Button {
@@ -465,10 +472,15 @@ private struct RemoteSessionView: View {
                 .disabled(dictation.isRecording)
                 .accessibilityLabel("语音语言：\(dictationLanguageName)")
 
-                Button { model.sendPhoneClipboard() } label: {
+                Button { model.copyRemoteSelection() } label: {
+                    controlBarTile("doc.on.doc.fill", color: .green)
+                }
+                .accessibilityLabel("复制远端所选内容")
+
+                Button { model.pasteRemoteClipboard() } label: {
                     controlBarTile("doc.on.clipboard.fill", color: .orange)
                 }
-                .accessibilityLabel("粘贴手机文本")
+                .accessibilityLabel("粘贴远端剪贴板")
 
                 Button(action: toggleRotation) {
                     controlBarTile(rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left", color: .indigo)
