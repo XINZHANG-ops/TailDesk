@@ -181,6 +181,9 @@ enum InputInjector {
             event = nil
         }
         event?.flags = flags
+        if let clickCount = remote.clickCount {
+            event?.setIntegerValueField(.mouseEventClickState, value: Int64(max(1, min(3, clickCount))))
+        }
         event?.post(tap: .cghidEventTap)
     }
 

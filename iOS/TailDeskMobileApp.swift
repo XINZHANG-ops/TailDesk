@@ -291,6 +291,7 @@ private struct RemoteSessionView: View {
             .font(.callout)
             .foregroundStyle(.white)
             .lineLimit(3)
+            .truncationMode(.head)
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -484,8 +485,8 @@ private final class VoiceDictation: NSObject, ObservableObject {
     override init() {
         super.init()
 #if DEBUG
-        assert(Self.segmentLimit(for: "zh-CN") == 36)
-        assert(Self.segmentLimit(for: "en-US") == 80)
+        assert(Self.segmentLimit(for: "zh-CN") == 100)
+        assert(Self.segmentLimit(for: "en-US") == 200)
 #endif
     }
 
@@ -576,7 +577,7 @@ private final class VoiceDictation: NSObject, ObservableObject {
     }
 
     private static func segmentLimit(for localeIdentifier: String) -> Int {
-        localeIdentifier == "zh-CN" ? 36 : 80
+        localeIdentifier == "zh-CN" ? 100 : 200
     }
 
     private func flushAndContinue() {

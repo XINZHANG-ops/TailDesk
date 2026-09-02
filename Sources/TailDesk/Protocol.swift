@@ -88,6 +88,7 @@ struct RemoteInputEvent: Codable {
     var deltaX: Double = 0
     var deltaY: Double = 0
     var text: String?
+    var clickCount: Int?
 }
 
 enum RemoteModifier {
@@ -165,6 +166,9 @@ enum ProtocolSelfCheck {
         let textEvent = RemoteInputEvent(kind: .text, text: "中文 input")
         let decodedEvent = try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(textEvent))
         precondition(decodedEvent.kind == .text && decodedEvent.text == "中文 input")
+        let doubleClick = RemoteInputEvent(kind: .leftMouseDown, clickCount: 2)
+        let decodedClick = try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(doubleClick))
+        precondition(decodedClick.clickCount == 2)
         precondition(WireMessage(rawValue: 7) == .audioFrame)
     }
 }

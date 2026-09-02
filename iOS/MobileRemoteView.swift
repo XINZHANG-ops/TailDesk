@@ -42,6 +42,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
     private let imageLayer = CALayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 144, height: 144))
+    private var previousTapTime: TimeInterval = 0
+    private var previousTapLocation = CGPoint.zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -81,6 +83,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(Self.unrotated(CGPoint(x: 0, y: 1), quarterTurns: 1) == .zero)
         assert(Self.unrotated(CGPoint(x: 1, y: 1), quarterTurns: 2) == .zero)
         assert(Self.unrotated(CGPoint(x: 1, y: 0), quarterTurns: 3) == .zero)
+        assert(Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.3, location: CGPoint(x: 20, y: 20)))
+        assert(!Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.5, location: .zero))
 #endif
     }
 
@@ -96,9 +100,20 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func tap(_ sender: UITapGestureRecognizer) {
-        guard sender.state == .ended, let point = normalized(sender.location(in: self)) else { return }
-        send(.leftMouseDown, point)
-        send(.leftMouseUp, point)
+        let location = sender.location(in: self)
+        guard sender.state == .ended, let point = normalized(location) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let isDouble = Self.isDoubleTap(
+            previousTime: previousTapTime,
+            previousLocation: previousTapLocation,
+            time: now,
+            location: location
+        )
+        let clickCount = isDouble ? 2 : 1
+        send(.leftMouseDown, point, clickCount: clickCount)
+        send(.leftMouseUp, point, clickCount: clickCount)
+        previousTapTime = isDouble ? 0 : now
+        previousTapLocation = location
     }
 
     @objc private func rightClick(_ sender: UITapGestureRecognizer) {
@@ -148,8 +163,19 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         ))
     }
 
-    private func send(_ kind: RemoteInputEvent.Kind, _ point: CGPoint) {
-        sendInput(RemoteInputEvent(kind: kind, x: point.x, y: point.y))
+    private func send(_ kind: RemoteInputEvent.Kind, _ point: CGPoint, clickCount: Int? = nil) {
+        sendInput(RemoteInputEvent(kind: kind, x: point.x, y: point.y, clickCount: clickCount))
+    }
+
+    private static func isDoubleTap(
+        previousTime: TimeInterval,
+        previousLocation: CGPoint,
+        time: TimeInterval,
+        location: CGPoint
+    ) -> Bool {
+        let dx = location.x - previousLocation.x
+        let dy = location.y - previousLocation.y
+        return previousTime > 0 && time - previousTime <= 0.4 && dx * dx + dy * dy <= 44 * 44
     }
 
     private func normalized(_ point: CGPoint) -> CGPoint? {
