@@ -728,9 +728,9 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
             self.sendKey = sendKey
 #if DEBUG
             assert(Self.deleteRepeatCount(streak: 1) == 1)
-            assert(Self.deleteRepeatCount(streak: 8) == 2)
-            assert(Self.deleteRepeatCount(streak: 18) == 4)
-            assert(Self.deleteRepeatCount(streak: 30) == 6)
+            assert(Self.deleteRepeatCount(streak: 8) == 3)
+            assert(Self.deleteRepeatCount(streak: 18) == 6)
+            assert(Self.deleteRepeatCount(streak: 30) == 10)
 #endif
         }
 
@@ -761,7 +761,7 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
         }
 
         private static func deleteRepeatCount(streak: Int) -> Int {
-            streak >= 30 ? 6 : (streak >= 18 ? 4 : (streak >= 8 ? 2 : 1))
+            streak >= 30 ? 10 : (streak >= 18 ? 6 : (streak >= 8 ? 3 : 1))
         }
     }
 }
