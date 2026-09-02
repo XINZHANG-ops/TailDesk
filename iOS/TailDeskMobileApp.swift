@@ -264,7 +264,10 @@ private struct RemoteSessionView: View {
             Image(systemName: dictation.isRecording ? "stop.fill" : "ellipsis")
                 .font(.headline)
                 .frame(width: 38, height: 38)
-                .background(dictation.isRecording ? .red.opacity(0.85) : .black.opacity(0.55), in: Circle())
+                .background(dictation.isRecording ? dictationAccentColor : .black.opacity(0.55), in: Circle())
+                .overlay {
+                    Circle().stroke(.white.opacity(dictation.isRecording ? 0.5 : 0), lineWidth: 1)
+                }
                 .foregroundStyle(.white)
         }
         .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "控制菜单")
@@ -295,7 +298,15 @@ private struct RemoteSessionView: View {
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
+            .background(dictationAccentColor.opacity(0.92), in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(.white.opacity(0.35), lineWidth: 1)
+            }
+    }
+
+    private var dictationAccentColor: Color {
+        Color(red: 0.15, green: 0.48, blue: 0.95)
     }
 
     private var compactMenuPanel: some View {
