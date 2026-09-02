@@ -113,10 +113,10 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             from: .zero,
             to: CGPoint(x: 100, y: 0),
             lensRadius: 20,
-            markerRadius: 10
+            markerRadius: 4.5
         )
-        assert(guide?.start == CGPoint(x: 25, y: 0))
-        assert(guide?.end == CGPoint(x: 90, y: 0))
+        assert(guide?.start == CGPoint(x: 23, y: 0))
+        assert(guide?.end == CGPoint(x: 95.5, y: 0))
 #endif
     }
 
@@ -368,35 +368,32 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func configureMagnifierGuide() {
         let guideColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 0.98).cgColor
         for shapeLayer in [magnifierGuideLayer, magnifierTargetLayer] {
-            shapeLayer.strokeColor = guideColor
             shapeLayer.lineCap = .round
             shapeLayer.lineJoin = .round
             shapeLayer.shadowColor = UIColor.black.cgColor
-            shapeLayer.shadowOpacity = 0.9
-            shapeLayer.shadowRadius = 2
+            shapeLayer.shadowOpacity = 0.65
+            shapeLayer.shadowRadius = 1
             shapeLayer.shadowOffset = .zero
             shapeLayer.isHidden = true
             layer.addSublayer(shapeLayer)
         }
         magnifierGuideLayer.fillColor = UIColor.clear.cgColor
-        magnifierGuideLayer.lineWidth = 3
-        magnifierGuideLayer.lineDashPattern = [7, 5]
-        magnifierTargetLayer.fillColor = UIColor.black.withAlphaComponent(0.6).cgColor
-        magnifierTargetLayer.lineWidth = 2.5
+        magnifierGuideLayer.strokeColor = guideColor
+        magnifierGuideLayer.lineWidth = 1.5
+        magnifierGuideLayer.lineDashPattern = [2, 4]
+        magnifierTargetLayer.fillColor = guideColor
+        magnifierTargetLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.9).cgColor
+        magnifierTargetLayer.lineWidth = 1.25
     }
 
     private func updateMagnifierGuide(to target: CGPoint) {
-        let markerRadius: CGFloat = 11
+        let markerRadius: CGFloat = 4.5
         let markerPath = UIBezierPath(ovalIn: CGRect(
             x: target.x - markerRadius,
             y: target.y - markerRadius,
             width: markerRadius * 2,
             height: markerRadius * 2
         ))
-        markerPath.move(to: CGPoint(x: target.x - 6, y: target.y))
-        markerPath.addLine(to: CGPoint(x: target.x + 6, y: target.y))
-        markerPath.move(to: CGPoint(x: target.x, y: target.y - 6))
-        markerPath.addLine(to: CGPoint(x: target.x, y: target.y + 6))
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -429,7 +426,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         let dx = target.x - lensCenter.x
         let dy = target.y - lensCenter.y
         let distance = hypot(dx, dy)
-        let startDistance = lensRadius + 5
+        let startDistance = lensRadius + 3
         guard distance > startDistance + markerRadius else { return nil }
         let unitX = dx / distance
         let unitY = dy / distance
