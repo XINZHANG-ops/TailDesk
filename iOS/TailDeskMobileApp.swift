@@ -183,10 +183,14 @@ private func compactControlPlacement(
     safeArea: EdgeInsets,
     preferTrailing: Bool
 ) -> CompactControlPlacement {
+    let sideCenterY = min(
+        bounds.maxY - safeArea.bottom - 78,
+        bounds.minY + safeArea.top + 78
+    )
     guard let contentRect else {
         return CompactControlPlacement(
             axis: .vertical,
-            center: CGPoint(x: preferTrailing ? bounds.maxX - 28 : bounds.minX + 28, y: bounds.midY)
+            center: CGPoint(x: preferTrailing ? bounds.maxX - 28 : bounds.minX + 28, y: sideCenterY)
         )
     }
 
@@ -203,7 +207,7 @@ private func compactControlPlacement(
             axis: .vertical,
             center: CGPoint(
                 x: preferTrailing ? bounds.maxX - safeArea.trailing - 28 : bounds.minX + safeArea.leading + 28,
-                y: bounds.midY
+                y: sideCenterY
             )
         )
     }
@@ -212,12 +216,12 @@ private func compactControlPlacement(
     case .leading:
         return CompactControlPlacement(
             axis: .vertical,
-            center: CGPoint(x: bounds.minX + safeArea.leading + best.1 / 2, y: bounds.midY)
+            center: CGPoint(x: bounds.minX + safeArea.leading + best.1 / 2, y: sideCenterY)
         )
     case .trailing:
         return CompactControlPlacement(
             axis: .vertical,
-            center: CGPoint(x: bounds.maxX - safeArea.trailing - best.1 / 2, y: bounds.midY)
+            center: CGPoint(x: bounds.maxX - safeArea.trailing - best.1 / 2, y: sideCenterY)
         )
     case .top, .bottom:
         let sideInset: CGFloat = 78
@@ -358,7 +362,7 @@ private struct RemoteSessionView: View {
             safeArea: EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 21),
             preferTrailing: false
         )
-        assert(testPlacement.axis == .vertical && testPlacement.center.x > 769)
+        assert(testPlacement.axis == .vertical && testPlacement.center.x > 769 && testPlacement.center.y < 100)
 #endif
         return Group {
             if placement.axis == .vertical {
