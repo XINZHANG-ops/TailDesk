@@ -1,6 +1,21 @@
 import SwiftUI
 import UIKit
 
+func mobileRemoteContentRect(imageSize: CGSize, in bounds: CGRect, quarterTurns: Int) -> CGRect? {
+    guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else { return nil }
+    let displayedSize = quarterTurns.isMultiple(of: 2)
+        ? imageSize
+        : CGSize(width: imageSize.height, height: imageSize.width)
+    let scale = min(bounds.width / displayedSize.width, bounds.height / displayedSize.height)
+    let size = CGSize(width: displayedSize.width * scale, height: displayedSize.height * scale)
+    return CGRect(
+        x: bounds.midX - size.width / 2,
+        y: bounds.midY - size.height / 2,
+        width: size.width,
+        height: size.height
+    )
+}
+
 struct MobileRemoteDesktopView: UIViewRepresentable {
     let frame: CGImage?
     let isInteractive: Bool
@@ -101,6 +116,12 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         }
 
 #if DEBUG
+        let landscapeFit = mobileRemoteContentRect(
+            imageSize: CGSize(width: 1_920, height: 1_080),
+            in: CGRect(x: 0, y: 0, width: 844, height: 390),
+            quarterTurns: 0
+        )!
+        assert(abs(landscapeFit.minX - 75.3333) < 0.001 && landscapeFit.height == 390)
         assert(Self.unrotated(CGPoint(x: 0, y: 1), quarterTurns: 1) == .zero)
         assert(Self.unrotated(CGPoint(x: 1, y: 1), quarterTurns: 2) == .zero)
         assert(Self.unrotated(CGPoint(x: 1, y: 0), quarterTurns: 3) == .zero)
@@ -358,17 +379,11 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private var baseContentRect: CGRect? {
-        guard let displayedImage, bounds.width > 0, bounds.height > 0 else { return nil }
-        let imageSize = rotationQuarterTurns.isMultiple(of: 2)
-            ? CGSize(width: displayedImage.width, height: displayedImage.height)
-            : CGSize(width: displayedImage.height, height: displayedImage.width)
-        let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
-        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-        return CGRect(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2,
-            width: size.width,
-            height: size.height
+        guard let displayedImage else { return nil }
+        return mobileRemoteContentRect(
+            imageSize: CGSize(width: displayedImage.width, height: displayedImage.height),
+            in: bounds,
+            quarterTurns: rotationQuarterTurns
         )
     }
 

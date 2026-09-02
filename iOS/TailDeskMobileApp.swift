@@ -167,6 +167,70 @@ private struct QRScannerView: UIViewControllerRepresentable {
     }
 }
 
+private enum CompactControlAxis {
+    case horizontal
+    case vertical
+}
+
+private struct CompactControlPlacement {
+    let axis: CompactControlAxis
+    let center: CGPoint
+}
+
+private func compactControlPlacement(
+    contentRect: CGRect?,
+    in bounds: CGRect,
+    safeArea: EdgeInsets,
+    preferTrailing: Bool
+) -> CompactControlPlacement {
+    guard let contentRect else {
+        return CompactControlPlacement(
+            axis: .vertical,
+            center: CGPoint(x: preferTrailing ? bounds.maxX - 28 : bounds.minX + 28, y: bounds.midY)
+        )
+    }
+
+    enum Edge { case leading, trailing, top, bottom }
+    let leadingSpace = max(0, contentRect.minX - bounds.minX - safeArea.leading)
+    let trailingSpace = max(0, bounds.maxX - safeArea.trailing - contentRect.maxX)
+    let candidates: [(Edge, CGFloat)] = preferTrailing
+        ? [(.trailing, trailingSpace), (.leading, leadingSpace), (.bottom, bounds.maxY - contentRect.maxY), (.top, contentRect.minY)]
+        : [(.leading, leadingSpace), (.trailing, trailingSpace), (.bottom, bounds.maxY - contentRect.maxY), (.top, contentRect.minY)]
+    let best = candidates.dropFirst().reduce(candidates[0]) { $1.1 > $0.1 ? $1 : $0 }
+
+    guard best.1 >= 48 else {
+        return CompactControlPlacement(
+            axis: .vertical,
+            center: CGPoint(
+                x: preferTrailing ? bounds.maxX - safeArea.trailing - 28 : bounds.minX + safeArea.leading + 28,
+                y: bounds.midY
+            )
+        )
+    }
+
+    switch best.0 {
+    case .leading:
+        return CompactControlPlacement(
+            axis: .vertical,
+            center: CGPoint(x: bounds.minX + safeArea.leading + best.1 / 2, y: bounds.midY)
+        )
+    case .trailing:
+        return CompactControlPlacement(
+            axis: .vertical,
+            center: CGPoint(x: bounds.maxX - safeArea.trailing - best.1 / 2, y: bounds.midY)
+        )
+    case .top, .bottom:
+        let sideInset: CGFloat = 78
+        return CompactControlPlacement(
+            axis: .horizontal,
+            center: CGPoint(
+                x: preferTrailing ? bounds.maxX - sideInset : bounds.minX + sideInset,
+                y: best.0 == .top ? bounds.minY + best.1 / 2 : bounds.maxY - best.1 / 2
+            )
+        )
+    }
+}
+
 private struct RemoteSessionView: View {
     @ObservedObject var model: MobileAppModel
     let device: SavedMac
@@ -208,31 +272,22 @@ private struct RemoteSessionView: View {
                 .buttonStyle(.borderedProminent)
             }
 
-            VStack {
-                if model.phase == .controlling && usesCompactControls {
-                    HStack {
-                        if rotationQuarterTurns == 0 {
-                            compactControlMenu
-                            contextualQuickControls
-                            Spacer()
-                        } else {
-                            Spacer()
-                            contextualQuickControls
-                            compactControlMenu
-                        }
-                    }
-                    .padding(8)
-                } else {
-                    controlBar
+            if model.phase == .controlling && usesCompactControls {
+                GeometryReader { geometry in
+                    compactControls(in: geometry)
                 }
-                Spacer()
-                if model.phase == .controlling && !usesCompactControls {
-                    Text("单指移动 · 点按左键 · 长按精确点击 · 停稳震动后拖拽 · 双指滚动")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.8))
-                        .padding(8)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .padding(.bottom, 8)
+            } else {
+                VStack {
+                    controlBar
+                    Spacer()
+                    if model.phase == .controlling {
+                        Text("单指移动 · 点按左键 · 长按精确点击 · 停稳震动后拖拽 · 双指滚动")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .padding(8)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .padding(.bottom, 8)
+                    }
                 }
             }
 
@@ -284,8 +339,70 @@ private struct RemoteSessionView: View {
         }
     }
 
+    private func compactControls(in geometry: GeometryProxy) -> some View {
+        let bounds = CGRect(origin: .zero, size: geometry.size)
+        let imageSize = model.currentFrame.map { CGSize(width: $0.width, height: $0.height) }
+        let contentRect = imageSize.flatMap {
+            mobileRemoteContentRect(imageSize: $0, in: bounds, quarterTurns: rotationQuarterTurns)
+        }
+        let placement = compactControlPlacement(
+            contentRect: contentRect,
+            in: bounds,
+            safeArea: geometry.safeAreaInsets,
+            preferTrailing: rotationQuarterTurns != 0
+        )
+#if DEBUG
+        let testPlacement = compactControlPlacement(
+            contentRect: CGRect(x: 75, y: 0, width: 694, height: 390),
+            in: CGRect(x: 0, y: 0, width: 844, height: 390),
+            safeArea: EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 21),
+            preferTrailing: false
+        )
+        assert(testPlacement.axis == .vertical && testPlacement.center.x > 769)
+#endif
+        return Group {
+            if placement.axis == .vertical {
+                VStack(spacing: 7) { compactActionButtons }
+            } else {
+                HStack(spacing: 7) { compactActionButtons }
+            }
+        }
+        .padding(5)
+        .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(.cyan.opacity(0.24), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
+        .position(placement.center)
+        .animation(.snappy(duration: 0.22), value: quickCopyVisible)
+        .animation(.snappy(duration: 0.22), value: model.canPaste)
+    }
+
+    @ViewBuilder private var compactActionButtons: some View {
+        compactControlMenu
+        if !dictation.isRecording && !keyboardActive && quickCopyVisible {
+            compactActionButton("doc.on.doc.fill", color: .green, label: "复制") {
+                model.copyRemoteSelection()
+                quickCopyDismissTask?.cancel()
+                quickCopyVisible = false
+            }
+            .transition(.scale.combined(with: .opacity))
+        }
+        if !dictation.isRecording && !keyboardActive && model.canPaste {
+            compactActionButton("doc.on.clipboard.fill", color: .orange, label: "粘贴") {
+                model.pasteRemoteClipboard()
+            }
+            .transition(.scale.combined(with: .opacity))
+        }
+    }
+
     private var compactControlMenu: some View {
-        Button {
+        let active = dictation.isRecording || keyboardActive
+        let icon = dictation.isRecording ? "stop.fill" : (keyboardActive ? "keyboard.fill" : "ellipsis")
+        let color: Color = dictation.isRecording ? .cyan : (keyboardActive ? .blue : .cyan)
+        let label = dictation.isRecording ? "停止并发送语音" : (keyboardActive ? "收起键盘" : "控制菜单")
+        return compactActionButton(icon, color: color, isActive: active, label: label) {
             if dictation.isRecording {
                 toggleDictation()
             } else if keyboardActive {
@@ -293,56 +410,29 @@ private struct RemoteSessionView: View {
             } else {
                 compactMenuVisible.toggle()
             }
-        } label: {
-            Image(systemName: dictation.isRecording ? "stop.fill" : (keyboardActive ? "keyboard.fill" : "ellipsis"))
-                .font(.headline)
-                .frame(width: 38, height: 38)
-                .background(dictation.isRecording || keyboardActive ? dictationAccentColor : .black.opacity(0.55), in: Circle())
-                .overlay {
-                    Circle().stroke(.white.opacity(dictation.isRecording || keyboardActive ? 0.5 : 0), lineWidth: 1)
-                }
-                .foregroundStyle(.white)
-        }
-        .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : (keyboardActive ? "收起键盘" : "控制菜单"))
-        .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
-    }
-
-    @ViewBuilder private var contextualQuickControls: some View {
-        if !dictation.isRecording && !keyboardActive {
-            HStack(spacing: 7) {
-                if quickCopyVisible {
-                    compactQuickButton("doc.on.doc.fill", color: .green, label: "复制") {
-                        model.copyRemoteSelection()
-                        quickCopyDismissTask?.cancel()
-                        quickCopyVisible = false
-                    }
-                    .transition(.scale.combined(with: .opacity))
-                }
-                if model.canPaste {
-                    compactQuickButton("doc.on.clipboard.fill", color: .orange, label: "粘贴") {
-                        model.pasteRemoteClipboard()
-                    }
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animation(.snappy(duration: 0.22), value: quickCopyVisible)
-            .animation(.snappy(duration: 0.22), value: model.canPaste)
         }
     }
 
-    private func compactQuickButton(
+    private func compactActionButton(
         _ systemImage: String,
         color: Color,
+        isActive: Bool = false,
         label: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(isActive ? .white : color)
                 .frame(width: 38, height: 38)
-                .background(.black.opacity(0.55), in: Circle())
-                .overlay { Circle().stroke(color.opacity(0.45), lineWidth: 1) }
+                .background(
+                    color.opacity(isActive ? 0.58 : 0.16),
+                    in: RoundedRectangle(cornerRadius: 11)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11)
+                        .stroke(color.opacity(isActive ? 0.9 : 0.42), lineWidth: 1)
+                }
         }
         .accessibilityLabel(label)
         .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
