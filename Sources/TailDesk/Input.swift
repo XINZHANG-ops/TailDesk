@@ -6,14 +6,14 @@ struct RemoteDesktopView: NSViewRepresentable {
     let frame: CGImage?
     var isInteractive = true
     var onActivate: () -> Void = {}
-    var onTopEdgeChanged: (Bool) -> Void = { _ in }
+    var onControlRevealZoneChanged: (Bool) -> Void = { _ in }
     let sendInput: (RemoteInputEvent) -> Void
 
     func makeNSView(context: Context) -> RemoteCanvasView {
         let view = RemoteCanvasView()
         view.isInteractive = isInteractive
         view.onActivate = onActivate
-        view.onTopEdgeChanged = onTopEdgeChanged
+        view.onControlRevealZoneChanged = onControlRevealZoneChanged
         view.sendInput = sendInput
         return view
     }
@@ -22,7 +22,7 @@ struct RemoteDesktopView: NSViewRepresentable {
         view.displayedImage = frame
         view.isInteractive = isInteractive
         view.onActivate = onActivate
-        view.onTopEdgeChanged = onTopEdgeChanged
+        view.onControlRevealZoneChanged = onControlRevealZoneChanged
         view.sendInput = sendInput
     }
 }
@@ -30,10 +30,10 @@ struct RemoteDesktopView: NSViewRepresentable {
 final class RemoteCanvasView: NSView {
     var isInteractive = true
     var onActivate: () -> Void = {}
-    var onTopEdgeChanged: (Bool) -> Void = { _ in }
+    var onControlRevealZoneChanged: (Bool) -> Void = { _ in }
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
     private var suppressNextMouseUp = false
-    private var wasNearTopEdge = false
+    private var wasInControlRevealZone = false
     var displayedImage: CGImage? {
         didSet {
             layer?.contents = displayedImage
@@ -76,18 +76,19 @@ final class RemoteCanvasView: NSView {
     }
     override func mouseMoved(with event: NSEvent) {
         guard isInteractive else { return }
-        let nearTopEdge = isNearTopEdge(convert(event.locationInWindow, from: nil), in: bounds)
-        if nearTopEdge != wasNearTopEdge {
-            wasNearTopEdge = nearTopEdge
-            onTopEdgeChanged(nearTopEdge)
+        let local = convert(event.locationInWindow, from: nil)
+        let inControlRevealZone = shouldRevealControls(at: local, contentRect: remoteContentRect, in: bounds)
+        if inControlRevealZone != wasInControlRevealZone {
+            wasInControlRevealZone = inControlRevealZone
+            onControlRevealZoneChanged(inControlRevealZone)
         }
         sendMouse(.mouseMove, event)
     }
 
     override func mouseExited(with event: NSEvent) {
-        guard wasNearTopEdge else { return }
-        wasNearTopEdge = false
-        onTopEdgeChanged(false)
+        guard wasInControlRevealZone else { return }
+        wasInControlRevealZone = false
+        onControlRevealZoneChanged(false)
     }
     override func mouseDragged(with event: NSEvent) { if isInteractive { sendMouse(.leftMouseDragged, event) } }
     override func rightMouseDown(with event: NSEvent) { if isInteractive { sendMouse(.rightMouseDown, event) } }
@@ -122,22 +123,26 @@ final class RemoteCanvasView: NSView {
     }
 
     private func normalizedPoint(for event: NSEvent) -> CGPoint? {
-        guard let displayedImage, bounds.width > 0, bounds.height > 0 else { return nil }
-        let imageWidth = CGFloat(displayedImage.width)
-        let imageHeight = CGFloat(displayedImage.height)
-        let scale = min(bounds.width / imageWidth, bounds.height / imageHeight)
-        let contentSize = CGSize(width: imageWidth * scale, height: imageHeight * scale)
-        let contentRect = CGRect(
-            x: (bounds.width - contentSize.width) / 2,
-            y: (bounds.height - contentSize.height) / 2,
-            width: contentSize.width,
-            height: contentSize.height
-        )
+        guard let contentRect = remoteContentRect else { return nil }
         let local = convert(event.locationInWindow, from: nil)
         guard contentRect.contains(local) else { return nil }
         return CGPoint(
             x: (local.x - contentRect.minX) / contentRect.width,
             y: 1 - (local.y - contentRect.minY) / contentRect.height
+        )
+    }
+
+    private var remoteContentRect: CGRect? {
+        guard let displayedImage, bounds.width > 0, bounds.height > 0 else { return nil }
+        let imageWidth = CGFloat(displayedImage.width)
+        let imageHeight = CGFloat(displayedImage.height)
+        let scale = min(bounds.width / imageWidth, bounds.height / imageHeight)
+        let contentSize = CGSize(width: imageWidth * scale, height: imageHeight * scale)
+        return CGRect(
+            x: (bounds.width - contentSize.width) / 2,
+            y: (bounds.height - contentSize.height) / 2,
+            width: contentSize.width,
+            height: contentSize.height
         )
     }
 
@@ -153,8 +158,9 @@ final class RemoteCanvasView: NSView {
     }
 }
 
-private func isNearTopEdge(_ point: CGPoint, in bounds: CGRect, threshold: CGFloat = 3) -> Bool {
-    bounds.contains(point) && point.y >= bounds.maxY - threshold
+private func shouldRevealControls(at point: CGPoint, contentRect: CGRect?, in bounds: CGRect, edgeThreshold: CGFloat = 3) -> Bool {
+    guard bounds.contains(point) else { return false }
+    return contentRect?.contains(point) != true || point.y >= bounds.maxY - edgeThreshold
 }
 
 enum InputInjector {
@@ -242,7 +248,9 @@ enum InputSelfCheck {
         precondition(scrollUnit(for: 0) == .line)
         precondition(scrollUnit(for: RemoteModifier.preciseScroll) == .pixel)
         let bounds = CGRect(x: 0, y: 0, width: 100, height: 100)
-        precondition(isNearTopEdge(CGPoint(x: 50, y: 98), in: bounds))
-        precondition(!isNearTopEdge(CGPoint(x: 50, y: 90), in: bounds))
+        let content = CGRect(x: 10, y: 0, width: 80, height: 100)
+        precondition(shouldRevealControls(at: CGPoint(x: 5, y: 50), contentRect: content, in: bounds))
+        precondition(shouldRevealControls(at: CGPoint(x: 50, y: 98), contentRect: content, in: bounds))
+        precondition(!shouldRevealControls(at: CGPoint(x: 50, y: 50), contentRect: content, in: bounds))
     }
 }
