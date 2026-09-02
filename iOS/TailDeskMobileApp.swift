@@ -286,7 +286,6 @@ private struct RemoteSessionView: View {
                     controlBar
                     if model.remoteDisplays.count > 1 {
                         displayPicker
-                            .frame(maxWidth: 320)
                             .padding(.top, 2)
                     }
                     Spacer()
@@ -563,36 +562,35 @@ private struct RemoteSessionView: View {
     }
 
     private var displayPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(model.remoteDisplays) { display in
-                    let selected = model.selectedRemoteDisplayID == display.id
-                    Button {
-                        model.selectRemoteDisplay(display.id)
-                    } label: {
-                        Label(display.name, systemImage: display.isMain ? "display" : "rectangle.on.rectangle")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(selected ? .white : .cyan)
-                            .padding(.horizontal, 10)
-                            .frame(height: 34)
-                            .background(selected ? Color.blue.opacity(0.78) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(selected ? .cyan.opacity(0.9) : .white.opacity(0.14), lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
+        HStack(spacing: 5) {
+            ForEach(model.remoteDisplays) { display in
+                let selected = model.selectedRemoteDisplayID == display.id
+                Button {
+                    model.selectRemoteDisplay(display.id)
+                } label: {
+                    Label(display.name, systemImage: display.isMain ? "display" : "rectangle.on.rectangle")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(selected ? .white : .cyan)
+                        .padding(.horizontal, 8)
+                        .frame(height: 30)
+                        .background(selected ? Color.blue.opacity(0.78) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 9)
+                                .stroke(selected ? .cyan.opacity(0.9) : .white.opacity(0.14), lineWidth: 1)
+                        }
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
-            .padding(5)
         }
-        .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.96), in: RoundedRectangle(cornerRadius: 14))
+        .padding(4)
+        .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.96), in: RoundedRectangle(cornerRadius: 12))
         .overlay {
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 12)
                 .stroke(.cyan.opacity(0.35), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+        .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
+        .fixedSize()
         .accessibilityLabel("远端显示器")
     }
 
