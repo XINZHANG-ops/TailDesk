@@ -6,12 +6,14 @@ struct RemoteDesktopView: NSViewRepresentable {
     let frame: CGImage?
     var isInteractive = true
     var onActivate: () -> Void = {}
+    var onTopEdgeChanged: (Bool) -> Void = { _ in }
     let sendInput: (RemoteInputEvent) -> Void
 
     func makeNSView(context: Context) -> RemoteCanvasView {
         let view = RemoteCanvasView()
         view.isInteractive = isInteractive
         view.onActivate = onActivate
+        view.onTopEdgeChanged = onTopEdgeChanged
         view.sendInput = sendInput
         return view
     }
@@ -20,6 +22,7 @@ struct RemoteDesktopView: NSViewRepresentable {
         view.displayedImage = frame
         view.isInteractive = isInteractive
         view.onActivate = onActivate
+        view.onTopEdgeChanged = onTopEdgeChanged
         view.sendInput = sendInput
     }
 }
@@ -27,8 +30,10 @@ struct RemoteDesktopView: NSViewRepresentable {
 final class RemoteCanvasView: NSView {
     var isInteractive = true
     var onActivate: () -> Void = {}
+    var onTopEdgeChanged: (Bool) -> Void = { _ in }
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
     private var suppressNextMouseUp = false
+    private var wasNearTopEdge = false
     var displayedImage: CGImage? {
         didSet {
             layer?.contents = displayedImage
@@ -45,7 +50,7 @@ final class RemoteCanvasView: NSView {
         layer?.contentsGravity = .resizeAspect
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.activeAlways, .inVisibleRect, .mouseMoved],
+            options: [.activeAlways, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
             owner: self
         ))
     }
@@ -69,7 +74,21 @@ final class RemoteCanvasView: NSView {
             sendMouse(.leftMouseUp, event)
         }
     }
-    override func mouseMoved(with event: NSEvent) { if isInteractive { sendMouse(.mouseMove, event) } }
+    override func mouseMoved(with event: NSEvent) {
+        guard isInteractive else { return }
+        let nearTopEdge = isNearTopEdge(convert(event.locationInWindow, from: nil), in: bounds)
+        if nearTopEdge != wasNearTopEdge {
+            wasNearTopEdge = nearTopEdge
+            onTopEdgeChanged(nearTopEdge)
+        }
+        sendMouse(.mouseMove, event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard wasNearTopEdge else { return }
+        wasNearTopEdge = false
+        onTopEdgeChanged(false)
+    }
     override func mouseDragged(with event: NSEvent) { if isInteractive { sendMouse(.leftMouseDragged, event) } }
     override func rightMouseDown(with event: NSEvent) { if isInteractive { sendMouse(.rightMouseDown, event) } }
     override func rightMouseUp(with event: NSEvent) { if isInteractive { sendMouse(.rightMouseUp, event) } }
@@ -132,6 +151,10 @@ final class RemoteCanvasView: NSView {
         if flags.contains(.capsLock) { result |= RemoteModifier.capsLock }
         return result
     }
+}
+
+private func isNearTopEdge(_ point: CGPoint, in bounds: CGRect, threshold: CGFloat = 3) -> Bool {
+    bounds.contains(point) && point.y >= bounds.maxY - threshold
 }
 
 enum InputInjector {
@@ -218,5 +241,8 @@ enum InputSelfCheck {
     static func run() {
         precondition(scrollUnit(for: 0) == .line)
         precondition(scrollUnit(for: RemoteModifier.preciseScroll) == .pixel)
+        let bounds = CGRect(x: 0, y: 0, width: 100, height: 100)
+        precondition(isNearTopEdge(CGPoint(x: 50, y: 98), in: bounds))
+        precondition(!isNearTopEdge(CGPoint(x: 50, y: 90), in: bounds))
     }
 }

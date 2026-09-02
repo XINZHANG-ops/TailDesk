@@ -57,6 +57,8 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var previewTask: Task<Void, Never>?
     @State private var immersive = false
+    @State private var edgeControlsVisible = false
+    @State private var edgeControlsHideTask: Task<Void, Never>?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -225,24 +227,29 @@ struct ContentView: View {
         Group {
             if immersive && model.isConnected {
                 ZStack {
-                    RemoteDesktopView(frame: model.currentFrame) { event in
+                    RemoteDesktopView(
+                        frame: model.currentFrame,
+                        onTopEdgeChanged: setEdgeControlsActive
+                    ) { event in
                         model.sendInput(event)
                     }
                     .background(Color.black)
 
                     VStack {
-                        HStack {
-                            exitControlButton
-                            Spacer()
-                            if model.remoteDisplays.count > 1 {
-                                displayPicker
-                                Spacer()
-                                exitControlButton.hidden()
+                        if edgeControlsVisible {
+                            HStack(spacing: 8) {
+                                exitControlButton
+                                if model.remoteDisplays.count > 1 {
+                                    displayPicker
+                                }
                             }
+                            .onHover(perform: setEdgeControlsActive)
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
                         Spacer()
                     }
-                    .padding(12)
+                    .padding(.top, 4)
+                    .animation(.snappy(duration: 0.2), value: edgeControlsVisible)
                 }
             } else if model.isConnected {
                 devicePreview
@@ -387,9 +394,18 @@ struct ContentView: View {
         Button {
             leaveRemoteSession()
         } label: {
-            Label("退出控制", systemImage: "xmark.circle.fill")
+            Label("退出", systemImage: "xmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(.red.opacity(0.68), in: RoundedRectangle(cornerRadius: 9))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9)
+                        .stroke(.red.opacity(0.9), lineWidth: 1)
+                }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.plain)
     }
 
     private var permissionsView: some View {
@@ -499,8 +515,22 @@ struct ContentView: View {
 
     private func enterControl() {
         guard model.currentFrame != nil, model.beginControl() else { return }
+        edgeControlsVisible = false
         immersive = true
         columnVisibility = .detailOnly
+    }
+
+    private func setEdgeControlsActive(_ active: Bool) {
+        edgeControlsHideTask?.cancel()
+        if active {
+            edgeControlsVisible = true
+        } else {
+            edgeControlsHideTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 650_000_000)
+                guard !Task.isCancelled else { return }
+                edgeControlsVisible = false
+            }
+        }
     }
 
     private func leaveRemoteSession(selecting item: SidebarItem? = nil) {
@@ -508,6 +538,8 @@ struct ContentView: View {
         previewTask?.cancel()
         model.disconnectViewerAndResumeHosting()
         if destination == .viewer { model.selectedDeviceID = nil }
+        edgeControlsHideTask?.cancel()
+        edgeControlsVisible = false
         immersive = false
         columnVisibility = .all
         if selection != destination { selection = destination }

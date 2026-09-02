@@ -32,7 +32,8 @@ On the controller Mac:
 
 If the controlled Mac has multiple displays, choose a display from the tabs
 above the preview or remote-control view. Pointer coordinates follow the
-selected display.
+selected display. During control, move the pointer to the top edge to reveal
+the display and exit controls; they stay hidden while unused.
 
 ## iPhone controller
 
