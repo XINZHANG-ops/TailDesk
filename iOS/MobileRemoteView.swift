@@ -184,6 +184,30 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func precisionClick(_ sender: UILongPressGestureRecognizer) {
+        if sender.state == .ended {
+            guard let point = lastPrecisionPoint else {
+                cancelPrecisionInteraction()
+                return
+            }
+            precisionDwellWorkItem?.cancel()
+            precisionDwellWorkItem = nil
+            precisionGestureActive = false
+            if precisionDragging {
+                send(.leftMouseUp, point)
+            } else {
+                send(.leftMouseDown, point)
+                send(.leftMouseUp, point)
+            }
+            precisionDragging = false
+            precisionDwellAnchor = nil
+            hideMagnifier()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            return
+        }
+        if sender.state == .cancelled || sender.state == .failed {
+            cancelPrecisionInteraction()
+            return
+        }
         guard let fingerLocation = clampedToImage(sender.location(in: self)),
               let targetLocation = precisionTarget(for: fingerLocation),
               let point = normalized(targetLocation) else {
@@ -208,23 +232,6 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
                     schedulePrecisionDragLock(at: targetLocation)
                 }
             }
-        case .ended:
-            precisionDwellWorkItem?.cancel()
-            precisionDwellWorkItem = nil
-            precisionGestureActive = false
-            if precisionDragging {
-                sendPrecisionDrag(point)
-                send(.leftMouseUp, point)
-            } else {
-                send(.leftMouseDown, point)
-                send(.leftMouseUp, point)
-            }
-            precisionDragging = false
-            precisionDwellAnchor = nil
-            hideMagnifier()
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        case .cancelled, .failed:
-            cancelPrecisionInteraction()
         default: break
         }
     }
