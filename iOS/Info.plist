@@ -22,6 +22,10 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSCameraUsageDescription</key>
     <string>TailDesk uses the camera only to scan device names shown by TailDesk on your Mac.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>TailDesk uses the microphone only while you dictate text to the remote Mac.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>TailDesk converts your speech into text that you choose to send to the remote Mac.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

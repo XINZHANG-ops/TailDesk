@@ -4,6 +4,7 @@ import UIKit
 struct MobileRemoteDesktopView: UIViewRepresentable {
     let frame: CGImage?
     let isInteractive: Bool
+    let rotationQuarterTurns: Int
     let sendInput: (RemoteInputEvent) -> Void
 
     func makeUIView(context: Context) -> MobileRemoteCanvas {
@@ -15,6 +16,7 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
     func updateUIView(_ view: MobileRemoteCanvas, context: Context) {
         view.displayedImage = frame
         view.isInteractive = isInteractive
+        view.rotationQuarterTurns = rotationQuarterTurns
         view.sendInput = sendInput
     }
 }
@@ -22,6 +24,12 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
 final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
     var isInteractive = false
+    var rotationQuarterTurns = 0 {
+        didSet {
+            guard rotationQuarterTurns != oldValue else { return }
+            resetZoom()
+        }
+    }
     var displayedImage: CGImage? {
         didSet {
             let size = displayedImage.map { CGSize(width: $0.width, height: $0.height) }
@@ -88,6 +96,9 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             contentSize: CGSize(width: 200, height: 200),
             boundsSize: CGSize(width: 100, height: 100)
         ) == CGPoint(x: 0, y: -100))
+        assert(Self.unrotated(CGPoint(x: 0, y: 1), quarterTurns: 1) == .zero)
+        assert(Self.unrotated(CGPoint(x: 1, y: 1), quarterTurns: 2) == .zero)
+        assert(Self.unrotated(CGPoint(x: 1, y: 0), quarterTurns: 3) == .zero)
 #endif
     }
 
@@ -211,12 +222,17 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
     private func normalized(_ point: CGPoint) -> CGPoint? {
         guard let content = currentImageRect, content.contains(point) else { return nil }
-        return CGPoint(x: (point.x - content.minX) / content.width, y: (point.y - content.minY) / content.height)
+        return Self.unrotated(CGPoint(
+            x: (point.x - content.minX) / content.width,
+            y: (point.y - content.minY) / content.height
+        ), quarterTurns: rotationQuarterTurns)
     }
 
     private var baseContentRect: CGRect? {
         guard let displayedImage, bounds.width > 0, bounds.height > 0 else { return nil }
-        let imageSize = CGSize(width: displayedImage.width, height: displayedImage.height)
+        let imageSize = rotationQuarterTurns.isMultiple(of: 2)
+            ? CGSize(width: displayedImage.width, height: displayedImage.height)
+            : CGSize(width: displayedImage.height, height: displayedImage.width)
         let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
         let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         return CGRect(
@@ -276,14 +292,32 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         )
     }
 
+    private static func unrotated(_ point: CGPoint, quarterTurns: Int) -> CGPoint {
+        switch quarterTurns % 4 {
+        case 1: CGPoint(x: 1 - point.y, y: point.x)
+        case 2: CGPoint(x: 1 - point.x, y: 1 - point.y)
+        case 3: CGPoint(x: point.y, y: 1 - point.x)
+        default: point
+        }
+    }
+
     private func updateImageLayer() {
-        guard let rect = currentImageRect else {
+        guard let rect = currentImageRect, let displayedImage else {
+            imageLayer.setAffineTransform(.identity)
             imageLayer.frame = .zero
             return
         }
+        let imageSize = CGSize(width: displayedImage.width, height: displayedImage.height)
+        let displayedWidth = rotationQuarterTurns.isMultiple(of: 2) ? imageSize.width : imageSize.height
+        let scale = rect.width / displayedWidth
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        imageLayer.frame = rect
+        imageLayer.bounds = CGRect(origin: .zero, size: imageSize)
+        imageLayer.position = CGPoint(x: rect.midX, y: rect.midY)
+        imageLayer.setAffineTransform(
+            CGAffineTransform(rotationAngle: -CGFloat(rotationQuarterTurns) * .pi / 2)
+                .scaledBy(x: scale, y: scale)
+        )
         CATransaction.commit()
     }
 }

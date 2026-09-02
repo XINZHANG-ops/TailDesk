@@ -155,20 +155,6 @@ final class MobileAppModel: ObservableObject {
         sendClipboard(.text(text))
     }
 
-    func sendFile(_ url: URL) {
-        let hasAccess = url.startAccessingSecurityScopedResource()
-        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            guard values.isRegularFile == true else { throw ClipboardError.regularFilesOnly }
-            guard (values.fileSize ?? 0) <= ClipboardCodec.maximumFileSize else { throw ClipboardError.fileTooLarge }
-            let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            sendClipboard(.file(name: url.lastPathComponent, data: data))
-        } catch {
-            setStatus(error.localizedDescription, isError: true)
-        }
-    }
-
     private func sendClipboard(_ content: ClipboardContent) {
         do {
             client?.sendClipboard(try ClipboardCodec.encode(content))

@@ -1,5 +1,6 @@
+import AVFoundation
+import Speech
 import SwiftUI
-import UniformTypeIdentifiers
 import VisionKit
 
 @main
@@ -156,8 +157,9 @@ private struct RemoteSessionView: View {
     let device: SavedMac
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @StateObject private var dictation = VoiceDictation()
     @State private var keyboardActive = false
-    @State private var importingFile = false
+    @State private var rotationQuarterTurns = 0
 
     var body: some View {
         ZStack {
@@ -165,6 +167,7 @@ private struct RemoteSessionView: View {
             MobileRemoteDesktopView(
                 frame: model.currentFrame,
                 isInteractive: model.phase == .controlling,
+                rotationQuarterTurns: rotationQuarterTurns,
                 sendInput: model.sendInput
             )
             .ignoresSafeArea()
@@ -186,6 +189,22 @@ private struct RemoteSessionView: View {
                 if model.phase == .controlling && verticalSizeClass == .compact {
                     HStack {
                         compactControlMenu
+                        Button(action: toggleDictation) {
+                            Image(systemName: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
+                                .font(.headline)
+                                .frame(width: 38, height: 38)
+                                .background(.black.opacity(0.55), in: Circle())
+                                .foregroundStyle(dictation.isRecording ? .red : .white)
+                        }
+                        .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "语音输入")
+                        Button(action: rotateLeft) {
+                            Image(systemName: "rotate.left")
+                                .font(.headline)
+                                .frame(width: 38, height: 38)
+                                .background(.black.opacity(0.55), in: Circle())
+                                .foregroundStyle(.white)
+                        }
+                        .accessibilityLabel("向左旋转画面")
                         Spacer()
                     }
                     .padding(8)
@@ -206,13 +225,36 @@ private struct RemoteSessionView: View {
             RemoteKeyboardCapture(active: $keyboardActive, sendText: model.sendText, sendKey: model.sendKey)
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
+
+            if dictation.isRecording {
+                Text(dictation.transcript.isEmpty ? "正在聆听…再点一次发送" : dictation.transcript)
+                    .font(.callout)
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(24)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            }
         }
         .statusBarHidden(model.phase == .controlling)
         .persistentSystemOverlays(model.phase == .controlling ? .hidden : .automatic)
         .onAppear { model.connect(to: device) }
-        .onDisappear { model.disconnect() }
-        .fileImporter(isPresented: $importingFile, allowedContentTypes: [.item]) { result in
-            if case .success(let url) = result { model.sendFile(url) }
+        .onDisappear {
+            dictation.cancel()
+            model.disconnect()
+        }
+        .onChange(of: model.phase) { _, phase in
+            if phase != .controlling { dictation.cancel() }
+        }
+        .alert("语音输入", isPresented: Binding(
+            get: { dictation.errorMessage != nil },
+            set: { if !$0 { dictation.errorMessage = nil } }
+        )) {
+            Button("好") {}
+        } message: {
+            Text(dictation.errorMessage ?? "")
         }
     }
 
@@ -221,7 +263,6 @@ private struct RemoteSessionView: View {
             Section(device.name) {
                 Button("键盘", systemImage: "keyboard") { keyboardActive.toggle() }
                 Button("粘贴手机文本", systemImage: "doc.on.clipboard") { model.sendPhoneClipboard() }
-                Button("发送文件", systemImage: "doc.badge.plus") { importingFile = true }
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
                         Label("分享收到的文件", systemImage: "square.and.arrow.up")
@@ -261,12 +302,17 @@ private struct RemoteSessionView: View {
                 Button { keyboardActive.toggle() } label: {
                     Image(systemName: "keyboard")
                 }
+                Button(action: toggleDictation) {
+                    Image(systemName: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
+                }
+                .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "语音输入")
                 Button { model.sendPhoneClipboard() } label: {
                     Image(systemName: "doc.on.clipboard")
                 }
-                Button { importingFile = true } label: {
-                    Image(systemName: "doc.badge.plus")
+                Button(action: rotateLeft) {
+                    Image(systemName: "rotate.left")
                 }
+                .accessibilityLabel("向左旋转画面")
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
                         Image(systemName: "square.and.arrow.up")
@@ -298,5 +344,131 @@ private struct RemoteSessionView: View {
         .padding(20)
         .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 14))
         .padding(24)
+    }
+
+    private func toggleDictation() {
+        keyboardActive = false
+        dictation.toggle(sendText: model.sendText)
+    }
+
+    private func rotateLeft() {
+        rotationQuarterTurns = (rotationQuarterTurns + 1) % 4
+    }
+}
+
+@MainActor
+private final class VoiceDictation: NSObject, ObservableObject {
+    @Published var isRecording = false
+    @Published var transcript = ""
+    @Published var errorMessage: String?
+
+    private let audioEngine = AVAudioEngine()
+    private let recognizer = SFSpeechRecognizer(locale: .current)
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var sendText: ((String) -> Void)?
+    private var tapInstalled = false
+    private var pendingStart = false
+
+    func toggle(sendText: @escaping (String) -> Void) {
+        if isRecording {
+            finish(send: true)
+            return
+        }
+        self.sendText = sendText
+        pendingStart = true
+        transcript = ""
+        errorMessage = nil
+        SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.pendingStart else { return }
+                guard status == .authorized else {
+                    self.fail("请在系统设置中允许 TailDesk 使用语音识别。")
+                    return
+                }
+                AVAudioApplication.requestRecordPermission { [weak self] granted in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        guard self.pendingStart else { return }
+                        guard granted else {
+                            self.fail("请在系统设置中允许 TailDesk 使用麦克风。")
+                            return
+                        }
+                        self.startRecording()
+                    }
+                }
+            }
+        }
+    }
+
+    func cancel() {
+        finish(send: false)
+    }
+
+    private func startRecording() {
+        guard let recognizer, recognizer.isAvailable else {
+            fail("当前无法使用语音识别，请稍后重试。")
+            return
+        }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setActive(true)
+
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            self.request = request
+
+            let input = audioEngine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            input.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
+                request.append(buffer)
+            }
+            tapInstalled = true
+            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                Task { @MainActor in
+                    guard let self, self.isRecording else { return }
+                    if let result {
+                        self.transcript = result.bestTranscription.formattedString
+                        if result.isFinal { self.finish(send: true) }
+                    } else if error != nil {
+                        self.fail("语音识别失败，请重试。")
+                    }
+                }
+            }
+            audioEngine.prepare()
+            try audioEngine.start()
+            pendingStart = false
+            isRecording = true
+        } catch {
+            fail("无法启动语音输入：\(error.localizedDescription)")
+        }
+    }
+
+    private func finish(send: Bool) {
+        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let completion = sendText
+        sendText = nil
+        pendingStart = false
+        isRecording = false
+        audioEngine.stop()
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        request?.endAudio()
+        recognitionTask?.cancel()
+        request = nil
+        recognitionTask = nil
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: .mixWithOthers)
+        try? session.setActive(true)
+        if send, !text.isEmpty { completion?(text) }
+    }
+
+    private func fail(_ message: String) {
+        finish(send: false)
+        errorMessage = message
     }
 }
