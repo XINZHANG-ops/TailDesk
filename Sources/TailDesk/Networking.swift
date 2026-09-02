@@ -7,6 +7,10 @@ private let tailDeskPort = NWEndpoint.Port(rawValue: 47_821)!
 private func tailDeskTCPParameters() -> NWParameters {
     let tcp = NWProtocolTCP.Options()
     tcp.noDelay = true
+    tcp.enableKeepalive = true
+    tcp.keepaliveIdle = 5
+    tcp.keepaliveInterval = 2
+    tcp.keepaliveCount = 3
     let parameters = NWParameters(tls: nil, tcp: tcp)
     parameters.serviceClass = .interactiveVideo
     return parameters
@@ -207,7 +211,11 @@ private final class HostPeer {
 
     func send(_ type: WireMessage, payload: Data) {
         guard authenticated else { return }
-        connection.send(content: WireCodec.frame(type, payload: payload), completion: .contentProcessed { _ in })
+        connection.send(content: WireCodec.frame(type, payload: payload), completion: .contentProcessed { [weak self] error in
+            guard let error else { return }
+            self?.onStatus("Controller connection: \(error.localizedDescription)", true)
+            self?.cancel()
+        })
     }
 
     private func receive() {

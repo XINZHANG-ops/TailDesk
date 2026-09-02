@@ -180,7 +180,13 @@ struct ContentView: View {
                 columnVisibility = .all
             }
         }
-        .onDisappear { previewTask?.cancel() }
+        .onDisappear {
+            previewTask?.cancel()
+            edgeControlsHideTask?.cancel()
+            if model.isConnecting || model.isConnected {
+                model.disconnectViewerAndResumeHosting()
+            }
+        }
     }
 
     private var hostView: some View {
@@ -243,7 +249,9 @@ struct ContentView: View {
                                     displayPicker
                                 }
                             }
-                            .onHover(perform: setEdgeControlsActive)
+                            .onHover { hovering in
+                                if hovering { setEdgeControlsActive(true) }
+                            }
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
                         Spacer()

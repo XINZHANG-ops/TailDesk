@@ -50,7 +50,7 @@ final class RemoteCanvasView: NSView {
         layer?.contentsGravity = .resizeAspect
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.activeAlways, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
+            options: [.activeAlways, .inVisibleRect, .mouseMoved],
             owner: self
         ))
     }
@@ -85,11 +85,6 @@ final class RemoteCanvasView: NSView {
         sendMouse(.mouseMove, event)
     }
 
-    override func mouseExited(with event: NSEvent) {
-        guard wasInControlRevealZone else { return }
-        wasInControlRevealZone = false
-        onControlRevealZoneChanged(false)
-    }
     override func mouseDragged(with event: NSEvent) { if isInteractive { sendMouse(.leftMouseDragged, event) } }
     override func rightMouseDown(with event: NSEvent) { if isInteractive { sendMouse(.rightMouseDown, event) } }
     override func rightMouseUp(with event: NSEvent) { if isInteractive { sendMouse(.rightMouseUp, event) } }
