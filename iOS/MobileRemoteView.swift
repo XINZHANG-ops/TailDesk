@@ -88,12 +88,6 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(Self.unrotated(CGPoint(x: 1, y: 0), quarterTurns: 3) == .zero)
         assert(Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.3, location: CGPoint(x: 20, y: 20)))
         assert(!Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.5, location: .zero))
-        let edge = Self.magnifierGeometry(
-            sourcePoint: .zero,
-            imageRect: CGRect(x: 0, y: 0, width: 100, height: 100),
-            lensSize: CGSize(width: 144, height: 144)
-        )
-        assert(edge.capturePoint == CGPoint(x: 24, y: 24) && edge.crosshairPoint == .zero)
         assert(!Self.didMove(from: .zero, to: CGPoint(x: 0.0001, y: 0.0001)))
         assert(Self.didMove(from: .zero, to: CGPoint(x: 0.001, y: 0)))
         assert(Self.edgeReach(0.5) == 0.5)
@@ -358,18 +352,13 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         guard force || !magnifier.isHidden else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard force || now - lastMagnifierRefreshTime >= 1.0 / 60,
-              let imageRect = currentImageRect else { return }
+              currentImageRect != nil else { return }
         let lensSize = magnifier.bounds.size
-        let geometry = Self.magnifierGeometry(
-            sourcePoint: magnifier.sourcePoint,
-            imageRect: imageRect,
-            lensSize: lensSize
-        )
-        magnifier.crosshairPoint = geometry.crosshairPoint
+        magnifier.crosshairPoint = CGPoint(x: lensSize.width / 2, y: lensSize.height / 2)
         magnifier.snapshot = UIGraphicsImageRenderer(size: lensSize).image { context in
             context.cgContext.translateBy(x: lensSize.width / 2, y: lensSize.height / 2)
             context.cgContext.scaleBy(x: PrecisionMagnifier.magnification, y: PrecisionMagnifier.magnification)
-            context.cgContext.translateBy(x: -geometry.capturePoint.x, y: -geometry.capturePoint.y)
+            context.cgContext.translateBy(x: -magnifier.sourcePoint.x, y: -magnifier.sourcePoint.y)
             context.cgContext.translateBy(x: imageLayer.position.x, y: imageLayer.position.y)
             context.cgContext.concatenate(imageLayer.affineTransform())
             context.cgContext.translateBy(x: -imageLayer.bounds.midX, y: -imageLayer.bounds.midY)
@@ -377,26 +366,6 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         }
         magnifier.setNeedsDisplay()
         lastMagnifierRefreshTime = now
-    }
-
-    private static func magnifierGeometry(
-        sourcePoint: CGPoint,
-        imageRect: CGRect,
-        lensSize: CGSize
-    ) -> (capturePoint: CGPoint, crosshairPoint: CGPoint) {
-        let radiusX = min(lensSize.width / (2 * PrecisionMagnifier.magnification), imageRect.width / 2)
-        let radiusY = min(lensSize.height / (2 * PrecisionMagnifier.magnification), imageRect.height / 2)
-        let capturePoint = CGPoint(
-            x: min(imageRect.maxX - radiusX, max(imageRect.minX + radiusX, sourcePoint.x)),
-            y: min(imageRect.maxY - radiusY, max(imageRect.minY + radiusY, sourcePoint.y))
-        )
-        return (
-            capturePoint,
-            CGPoint(
-                x: lensSize.width / 2 + (sourcePoint.x - capturePoint.x) * PrecisionMagnifier.magnification,
-                y: lensSize.height / 2 + (sourcePoint.y - capturePoint.y) * PrecisionMagnifier.magnification
-            )
-        )
     }
 
     private func hideMagnifier() {
