@@ -257,20 +257,22 @@ private struct RemoteSessionView: View {
         Button {
             if dictation.isRecording {
                 toggleDictation()
+            } else if keyboardActive {
+                keyboardActive = false
             } else {
                 compactMenuVisible.toggle()
             }
         } label: {
-            Image(systemName: dictation.isRecording ? "stop.fill" : "ellipsis")
+            Image(systemName: dictation.isRecording ? "stop.fill" : (keyboardActive ? "keyboard.fill" : "ellipsis"))
                 .font(.headline)
                 .frame(width: 38, height: 38)
-                .background(dictation.isRecording ? dictationAccentColor : .black.opacity(0.55), in: Circle())
+                .background(dictation.isRecording || keyboardActive ? dictationAccentColor : .black.opacity(0.55), in: Circle())
                 .overlay {
-                    Circle().stroke(.white.opacity(dictation.isRecording ? 0.5 : 0), lineWidth: 1)
+                    Circle().stroke(.white.opacity(dictation.isRecording || keyboardActive ? 0.5 : 0), lineWidth: 1)
                 }
                 .foregroundStyle(.white)
         }
-        .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "控制菜单")
+        .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : (keyboardActive ? "收起键盘" : "控制菜单"))
         .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
     }
 
@@ -337,7 +339,6 @@ private struct RemoteSessionView: View {
 
                 Button {
                     toggleDictationLanguage()
-                    compactMenuVisible = false
                 } label: {
                     compactMenuTile(dictationLocale == "zh-CN" ? "切换 English" : "切换中文", systemImage: "globe", color: .purple)
                 }
