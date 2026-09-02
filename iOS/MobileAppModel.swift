@@ -23,6 +23,7 @@ final class MobileAppModel: ObservableObject {
     @Published private(set) var currentFrame: CGImage?
     @Published private(set) var status = "等待连接"
     @Published private(set) var statusIsError = false
+    @Published private(set) var canPaste = false
 
     private let storageKey = "TailDesk.savedMacs"
     private var client: ViewerClient?
@@ -71,6 +72,7 @@ final class MobileAppModel: ObservableObject {
         phase = .connecting
         currentFrame = nil
         sharedPasteboardChangeCount = nil
+        canPaste = UIPasteboard.general.hasStrings
         setStatus("正在连接 \(device.name)", isError: false)
 
         decoder.onFrame = { [weak self] frame in
@@ -158,6 +160,7 @@ final class MobileAppModel: ObservableObject {
 
     func copyRemoteSelection() {
         sharedPasteboardChangeCount = UIPasteboard.general.changeCount
+        canPaste = true
         sendShortcut(keyCode: 8) // macOS C
     }
 
@@ -171,6 +174,7 @@ final class MobileAppModel: ObservableObject {
         do {
             client?.sendClipboard(try ClipboardCodec.encode(.text(text)))
             sharedPasteboardChangeCount = pasteboard.changeCount
+            canPaste = true
             // ponytail: 200 ms lets the remote pasteboard apply text; add a protocol ack if WAN tests show races.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                 self?.sendShortcut(keyCode: 9)
@@ -189,14 +193,20 @@ final class MobileAppModel: ObservableObject {
         sharedChangeCount != changeCount
     }
 
+    func refreshClipboardAvailability() {
+        if UIPasteboard.general.hasStrings { canPaste = true }
+    }
+
     private func receiveClipboard(_ data: Data) {
         do {
             switch try ClipboardCodec.decode(data) {
             case .text(let text):
                 UIPasteboard.general.string = text
                 sharedPasteboardChangeCount = UIPasteboard.general.changeCount
+                canPaste = true
                 setStatus("远端文本已放入 iPhone 剪贴板", isError: false)
             case .file:
+                canPaste = true
                 break
             }
         } catch {
@@ -216,6 +226,7 @@ final class MobileAppModel: ObservableObject {
         audioPlayer?.stop()
         audioPlayer = nil
         currentFrame = nil
+        canPaste = false
         self.phase = phase
     }
 

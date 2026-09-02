@@ -171,12 +171,15 @@ private struct RemoteSessionView: View {
     @ObservedObject var model: MobileAppModel
     let device: SavedMac
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @AppStorage("TailDesk.dictationLocale") private var dictationLocale = "zh-CN"
     @StateObject private var dictation = VoiceDictation()
     @State private var keyboardActive = false
     @State private var rotationQuarterTurns = 0
     @State private var compactMenuVisible = false
+    @State private var quickCopyVisible = false
+    @State private var quickCopyDismissTask: Task<Void, Never>?
     @State private var interfaceOrientationBeforeKeyboard: UIInterfaceOrientation?
     @State private var rotationBeforeKeyboard: Int?
 
@@ -187,7 +190,8 @@ private struct RemoteSessionView: View {
                 frame: model.currentFrame,
                 isInteractive: model.phase == .controlling,
                 rotationQuarterTurns: rotationQuarterTurns,
-                sendInput: model.sendInput
+                sendInput: model.sendInput,
+                onCopySuggested: showQuickCopy
             )
             .ignoresSafeArea(.container)
 
@@ -209,9 +213,11 @@ private struct RemoteSessionView: View {
                     HStack {
                         if rotationQuarterTurns == 0 {
                             compactControlMenu
+                            contextualQuickControls
                             Spacer()
                         } else {
                             Spacer()
+                            contextualQuickControls
                             compactControlMenu
                         }
                     }
@@ -251,12 +257,16 @@ private struct RemoteSessionView: View {
         .persistentSystemOverlays(model.phase == .controlling ? .hidden : .automatic)
         .onAppear { model.connect(to: device) }
         .onDisappear {
+            quickCopyDismissTask?.cancel()
             dictation.cancel()
             restoreLayoutAfterKeyboard()
             model.disconnect()
         }
         .onChange(of: keyboardActive) { _, active in
             if !active { restoreLayoutAfterKeyboard() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.refreshClipboardAvailability() }
         }
         .onChange(of: model.phase) { _, phase in
             if phase != .controlling {
@@ -294,6 +304,47 @@ private struct RemoteSessionView: View {
                 .foregroundStyle(.white)
         }
         .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : (keyboardActive ? "收起键盘" : "控制菜单"))
+        .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
+    }
+
+    @ViewBuilder private var contextualQuickControls: some View {
+        if !dictation.isRecording && !keyboardActive {
+            HStack(spacing: 7) {
+                if quickCopyVisible {
+                    compactQuickButton("doc.on.doc.fill", color: .green, label: "复制") {
+                        model.copyRemoteSelection()
+                        quickCopyDismissTask?.cancel()
+                        quickCopyVisible = false
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+                if model.canPaste {
+                    compactQuickButton("doc.on.clipboard.fill", color: .orange, label: "粘贴") {
+                        model.pasteRemoteClipboard()
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .animation(.snappy(duration: 0.22), value: quickCopyVisible)
+            .animation(.snappy(duration: 0.22), value: model.canPaste)
+        }
+    }
+
+    private func compactQuickButton(
+        _ systemImage: String,
+        color: Color,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 38, height: 38)
+                .background(.black.opacity(0.55), in: Circle())
+                .overlay { Circle().stroke(color.opacity(0.45), lineWidth: 1) }
+        }
+        .accessibilityLabel(label)
         .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
     }
 
@@ -536,6 +587,17 @@ private struct RemoteSessionView: View {
     private func toggleDictation() {
         keyboardActive = false
         dictation.toggle(localeIdentifier: dictationLocale, sendText: model.sendText)
+    }
+
+    private func showQuickCopy() {
+        guard usesCompactControls else { return }
+        quickCopyDismissTask?.cancel()
+        quickCopyVisible = true
+        quickCopyDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            quickCopyVisible = false
+        }
     }
 
     private func toggleKeyboard() {

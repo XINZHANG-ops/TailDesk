@@ -6,10 +6,12 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
     let isInteractive: Bool
     let rotationQuarterTurns: Int
     let sendInput: (RemoteInputEvent) -> Void
+    let onCopySuggested: () -> Void
 
     func makeUIView(context: Context) -> MobileRemoteCanvas {
         let view = MobileRemoteCanvas()
         view.sendInput = sendInput
+        view.onCopySuggested = onCopySuggested
         return view
     }
 
@@ -18,11 +20,13 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
         view.isInteractive = isInteractive
         view.rotationQuarterTurns = rotationQuarterTurns
         view.sendInput = sendInput
+        view.onCopySuggested = onCopySuggested
     }
 }
 
 final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
+    var onCopySuggested: () -> Void = {}
     var isInteractive = false {
         didSet {
             if oldValue && !isInteractive { cancelPrecisionInteraction() }
@@ -168,6 +172,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         let clickCount = isDouble ? 2 : 1
         send(.leftMouseDown, point, clickCount: clickCount)
         send(.leftMouseUp, point, clickCount: clickCount)
+        onCopySuggested()
         previousTapTime = isDouble ? 0 : now
         previousTapLocation = location
     }
@@ -202,6 +207,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             precisionDwellAnchor = nil
             hideMagnifier()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onCopySuggested()
             return
         }
         if sender.state == .cancelled || sender.state == .failed {
@@ -708,7 +714,8 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
 #if DEBUG
             assert(Self.deleteRepeatCount(streak: 1) == 1)
             assert(Self.deleteRepeatCount(streak: 8) == 2)
-            assert(Self.deleteRepeatCount(streak: 18) == 3)
+            assert(Self.deleteRepeatCount(streak: 18) == 4)
+            assert(Self.deleteRepeatCount(streak: 30) == 6)
 #endif
         }
 
@@ -739,7 +746,7 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
         }
 
         private static func deleteRepeatCount(streak: Int) -> Int {
-            streak >= 18 ? 3 : (streak >= 8 ? 2 : 1)
+            streak >= 30 ? 6 : (streak >= 18 ? 4 : (streak >= 8 ? 2 : 1))
         }
     }
 }
