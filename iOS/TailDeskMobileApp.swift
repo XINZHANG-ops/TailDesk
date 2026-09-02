@@ -387,12 +387,6 @@ private struct RemoteSessionView: View {
                 }
                 .disabled(keyboardActive)
 
-                if let file = model.receivedFileURL {
-                    ShareLink(item: file) {
-                        compactMenuTile("分享文件", systemImage: "square.and.arrow.up.fill", color: .green)
-                    }
-                }
-
                 Button(role: .destructive) {
                     model.disconnect()
                     dismiss()
@@ -488,12 +482,6 @@ private struct RemoteSessionView: View {
                 .disabled(keyboardActive)
                 .accessibilityLabel(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向")
 
-                if let file = model.receivedFileURL {
-                    ShareLink(item: file) {
-                        controlBarTile("square.and.arrow.up.fill", color: .green)
-                    }
-                    .accessibilityLabel("分享收到的文件")
-                }
             } else {
                 Text(device.name)
                     .font(.callout.bold())

@@ -23,19 +23,23 @@ final class MobileAppModel: ObservableObject {
     @Published private(set) var currentFrame: CGImage?
     @Published private(set) var status = "等待连接"
     @Published private(set) var statusIsError = false
-    @Published private(set) var receivedFileURL: URL?
 
     private let storageKey = "TailDesk.savedMacs"
     private var client: ViewerClient?
     private var decoder: H264Decoder?
     private var audioPlayer: RemoteAudioPlayer?
     private var timeoutTask: Task<Void, Never>?
+    private var sharedPasteboardChangeCount: Int?
 
     init() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let saved = try? JSONDecoder().decode([SavedMac].self, from: data) {
             devices = saved
         }
+#if DEBUG
+        assert(Self.phoneClipboardChanged(1, since: nil))
+        assert(!Self.phoneClipboardChanged(1, since: 1))
+#endif
     }
 
     @discardableResult
@@ -66,7 +70,7 @@ final class MobileAppModel: ObservableObject {
         self.client = client
         phase = .connecting
         currentFrame = nil
-        receivedFileURL = nil
+        sharedPasteboardChangeCount = nil
         setStatus("正在连接 \(device.name)", isError: false)
 
         decoder.onFrame = { [weak self] frame in
@@ -153,11 +157,27 @@ final class MobileAppModel: ObservableObject {
     }
 
     func copyRemoteSelection() {
+        sharedPasteboardChangeCount = UIPasteboard.general.changeCount
         sendShortcut(keyCode: 8) // macOS C
     }
 
     func pasteRemoteClipboard() {
-        sendShortcut(keyCode: 9) // macOS V
+        let pasteboard = UIPasteboard.general
+        guard Self.phoneClipboardChanged(pasteboard.changeCount, since: sharedPasteboardChangeCount),
+              let text = pasteboard.string, !text.isEmpty else {
+            sendShortcut(keyCode: 9) // macOS V
+            return
+        }
+        do {
+            client?.sendClipboard(try ClipboardCodec.encode(.text(text)))
+            sharedPasteboardChangeCount = pasteboard.changeCount
+            // ponytail: 200 ms lets the remote pasteboard apply text; add a protocol ack if WAN tests show races.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.sendShortcut(keyCode: 9)
+            }
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
     }
 
     private func sendShortcut(keyCode: UInt16) {
@@ -165,38 +185,23 @@ final class MobileAppModel: ObservableObject {
         sendInput(RemoteInputEvent(kind: .keyUp, keyCode: keyCode, flags: RemoteModifier.command))
     }
 
+    private static func phoneClipboardChanged(_ changeCount: Int, since sharedChangeCount: Int?) -> Bool {
+        sharedChangeCount != changeCount
+    }
+
     private func receiveClipboard(_ data: Data) {
         do {
             switch try ClipboardCodec.decode(data) {
             case .text(let text):
                 UIPasteboard.general.string = text
+                sharedPasteboardChangeCount = UIPasteboard.general.changeCount
                 setStatus("远端文本已放入 iPhone 剪贴板", isError: false)
-            case .file(let name, let contents):
-                receivedFileURL = try saveReceivedFile(name: name, contents: contents)
-                setStatus("已收到文件 \(name)", isError: false)
+            case .file:
+                break
             }
         } catch {
             setStatus(error.localizedDescription, isError: true)
         }
-    }
-
-    private func saveReceivedFile(name: String, contents: Data) throws -> URL {
-        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("TailDesk Transfers", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let safeName = URL(fileURLWithPath: name).lastPathComponent
-        guard !safeName.isEmpty, safeName != ".", safeName != ".." else { throw ClipboardError.invalidFileName }
-        var destination = directory.appendingPathComponent(safeName)
-        let original = destination
-        var suffix = 2
-        while FileManager.default.fileExists(atPath: destination.path) {
-            let stem = original.deletingPathExtension().lastPathComponent
-            let ext = original.pathExtension
-            destination = directory.appendingPathComponent("\(stem) \(suffix)" + (ext.isEmpty ? "" : ".\(ext)"))
-            suffix += 1
-        }
-        try contents.write(to: destination, options: .atomic)
-        return destination
     }
 
     private func disconnect(endingIn phase: MobileSessionPhase) {
