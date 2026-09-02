@@ -290,7 +290,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func refreshMagnifierSnapshot(force: Bool = false) {
         guard force || !magnifier.isHidden else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        guard force || now - lastMagnifierRefreshTime >= 1.0 / 30,
+        guard force || now - lastMagnifierRefreshTime >= 1.0 / 60,
               let imageRect = currentImageRect else { return }
         let lensSize = magnifier.bounds.size
         let geometry = Self.magnifierGeometry(
