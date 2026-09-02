@@ -100,6 +100,18 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(Self.edgeReach(0.06) == 0)
         assert(abs(Self.edgeReach(0.18) - 0.18) < 0.0001)
         assert(abs(Self.edgeReach(0.94) - 1) < 0.0001)
+        let phoneBounds = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let topLeftLens = Self.magnifierCenter(
+            near: CGPoint(x: 20, y: 20),
+            in: phoneBounds,
+            lensSize: magnifier.bounds.size
+        )
+        assert(topLeftLens.x > 20 && topLeftLens.y >= 80)
+        assert(Self.magnifierCenter(
+            near: CGPoint(x: 195, y: 422),
+            in: phoneBounds,
+            lensSize: magnifier.bounds.size
+        ).y < 422)
 #endif
     }
 
@@ -303,16 +315,43 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func showMagnifier(at point: CGPoint, near fingerPoint: CGPoint) {
         let firstFrame = magnifier.isHidden
         magnifier.sourcePoint = point
-        let half = magnifier.bounds.width / 2
-        let gap = half + 18
-        let preferredY = fingerPoint.y - gap
-        magnifier.center = CGPoint(
-            x: min(bounds.maxX - half - 8, max(bounds.minX + half + 8, fingerPoint.x)),
-            y: preferredY - half > bounds.minY ? preferredY : min(bounds.maxY - half - 8, fingerPoint.y + gap)
+        magnifier.center = Self.magnifierCenter(
+            near: fingerPoint,
+            in: bounds,
+            lensSize: magnifier.bounds.size
         )
         refreshMagnifierSnapshot(force: firstFrame)
         magnifier.isHidden = false
         magnifier.setNeedsDisplay()
+    }
+
+    private static func magnifierCenter(near finger: CGPoint, in bounds: CGRect, lensSize: CGSize) -> CGPoint {
+        let padding: CGFloat = 8
+        let clearance: CGFloat = 36
+        let half = CGPoint(x: lensSize.width / 2, y: lensSize.height / 2)
+        let minX = bounds.minX + half.x + padding
+        let maxX = bounds.maxX - half.x - padding
+        let minY = bounds.minY + half.y + padding
+        let maxY = bounds.maxY - half.y - padding
+        let clamp: (CGPoint) -> CGPoint = { point in
+            CGPoint(
+                x: min(maxX, max(minX, point.x)),
+                y: min(maxY, max(minY, point.y))
+            )
+        }
+        let verticalOffset = half.y + clearance
+        if finger.y - verticalOffset >= minY {
+            return clamp(CGPoint(x: finger.x, y: finger.y - verticalOffset))
+        }
+        let horizontalOffset = half.x + clearance
+        let side = bounds.midX < finger.x ? -horizontalOffset : horizontalOffset
+        if (side > 0 && finger.x + side <= maxX) || (side < 0 && finger.x + side >= minX) {
+            return clamp(CGPoint(x: finger.x + side, y: finger.y))
+        }
+        if finger.y + verticalOffset <= maxY {
+            return clamp(CGPoint(x: finger.x, y: finger.y + verticalOffset))
+        }
+        return clamp(CGPoint(x: finger.x - side, y: finger.y))
     }
 
     private func refreshMagnifierSnapshot(force: Bool = false) {
