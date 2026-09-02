@@ -6,15 +6,11 @@ import VisionKit
 @main
 struct TailDeskMobileApp: App {
     @StateObject private var model = MobileAppModel()
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             MobileRootView(model: model)
                 .onOpenURL { _ = model.importDevices(from: $0) }
-                .onChange(of: scenePhase) { _, phase in
-                    if phase == .background { model.disconnect() }
-                }
         }
     }
 }
