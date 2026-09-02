@@ -57,10 +57,11 @@ returning to the app requests a fresh video key frame so the picture resumes.
 
 Mac controllers synchronize clipboard text and one file or folder of any size
 in either direction. Files stream in 1 MB chunks, folders have no artificial
-item-count limit, and the receiver verifies available disk space before saving.
-Received items are stored under TailDesk's Application Support folder and placed
-on the local Finder clipboard for pasting. iPhone clipboard synchronization
-remains text-only.
+item-count limit, and the receiver keeps a disk-space safety reserve. Starting a
+new file transfer invalidates the previous Finder clipboard immediately; the new
+item becomes pasteable atomically when its transfer finishes. Received items are
+stored under TailDesk's Application Support folder. iPhone clipboard
+synchronization remains text-only.
 
 The controlled Mac's stereo system audio plays on the controller. TailDesk
 excludes its own playback from capture to avoid feedback; microphones are not

@@ -78,6 +78,7 @@ struct ClipboardTransferStart: Codable, Equatable {
     let isDirectory: Bool
     let size: UInt64
     let permissions: Int?
+    let streamsUnknownSize: Bool?
 }
 
 struct ClipboardTransferItem: Codable, Equatable {
@@ -113,7 +114,8 @@ enum ClipboardTransferCodec {
     }
 
     static func encodeStart(_ value: ClipboardTransferStart) throws -> Data {
-        guard ClipboardPath.isSafeName(value.name), validPermissions(value.permissions) else {
+        guard ClipboardPath.isSafeName(value.name), validPermissions(value.permissions),
+              value.isDirectory || value.streamsUnknownSize != true else {
             throw ClipboardError.invalidTransfer
         }
         return try JSONEncoder().encode(value)
@@ -261,7 +263,7 @@ final class ClipboardSync {
             return
         }
         receiver.receive(data, onComplete: { [weak self] receipt in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 switch receipt {
                 case .text(let text):
                     self?.putTextOnPasteboard(text)
@@ -271,9 +273,11 @@ final class ClipboardSync {
                 }
             }
         }, onStatus: { [weak self] message, isError in
-            Task { @MainActor in self?.onStatus(message, isError) }
+            DispatchQueue.main.async { self?.onStatus(message, isError) }
+        }, onStart: { [weak self] in
+            DispatchQueue.main.async { self?.clearPasteboardForIncomingFile() }
         }, onReject: { [weak self] id in
-            Task { @MainActor in self?.sendCancellation(id) }
+            DispatchQueue.main.async { self?.sendCancellation(id) }
         })
     }
 
@@ -352,6 +356,13 @@ final class ClipboardSync {
         lastChangeCount = pasteboard.changeCount
     }
 
+    private func clearPasteboardForIncomingFile() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        lastChangeCount = pasteboard.changeCount
+        onStatus("Receiving clipboard item; paste will be ready when transfer finishes", false)
+    }
+
     fileprivate nonisolated static func saveReceivedFile(name: String, contents: Data) throws -> URL {
         let destination = try ClipboardStorage.destination(for: name)
         try contents.write(to: destination, options: .atomic)
@@ -410,8 +421,10 @@ private enum ClipboardTransferSender {
             id: id,
             name: url.lastPathComponent,
             isDirectory: isDirectory,
-            size: isDirectory ? try folderSize(url, isCancelled: isCancelled) : UInt64(values.fileSize ?? 0),
-            permissions: permissions(at: url)
+            // Start folders immediately. Each file still declares its exact size as it streams.
+            size: isDirectory ? 0 : UInt64(values.fileSize ?? 0),
+            permissions: permissions(at: url),
+            streamsUnknownSize: isDirectory ? true : nil
         )
         guard !isCancelled() else { throw ClipboardError.transferCancelled }
         try sendPacket(.start, payload: ClipboardTransferCodec.encodeStart(start), using: wireSend)
@@ -450,22 +463,6 @@ private enum ClipboardTransferSender {
         }
         semaphore.wait()
         guard succeeded else { throw ClipboardError.transferDisconnected }
-    }
-
-    private static func folderSize(_ url: URL, isCancelled: () -> Bool) throws -> UInt64 {
-        var total: UInt64 = 0
-        try enumerate(url) { _, _, values in
-            guard !isCancelled() else { throw ClipboardError.transferCancelled }
-            guard values.isSymbolicLink != true else { throw ClipboardError.unsupportedItem }
-            if values.isRegularFile == true {
-                let (sum, overflow) = total.addingReportingOverflow(UInt64(values.fileSize ?? 0))
-                guard !overflow else { throw ClipboardError.invalidTransfer }
-                total = sum
-            } else if values.isDirectory != true {
-                throw ClipboardError.unsupportedItem
-            }
-        }
-        return total
     }
 
     private static func sendFolder(
@@ -548,15 +545,21 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
         var currentRemaining: UInt64
         var currentPermissions: Int?
         var received: UInt64 = 0
+        var declared: UInt64
+        let expected: UInt64?
+        var capacityBudget: UInt64
         var deferredDirectoryPermissions: [(URL, Int)] = []
 
-        init(metadata: ClipboardTransferStart, stagingURL: URL, handle: FileHandle?) {
+        init(metadata: ClipboardTransferStart, stagingURL: URL, handle: FileHandle?, capacityBudget: UInt64) {
             self.metadata = metadata
             self.stagingURL = stagingURL
             self.handle = handle
             self.currentURL = metadata.isDirectory ? nil : stagingURL
             self.currentRemaining = metadata.isDirectory ? 0 : metadata.size
             self.currentPermissions = metadata.isDirectory ? nil : metadata.permissions
+            self.declared = metadata.isDirectory ? 0 : metadata.size
+            self.expected = metadata.streamsUnknownSize == true ? nil : metadata.size
+            self.capacityBudget = capacityBudget
         }
     }
 
@@ -578,6 +581,7 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
         _ data: Data,
         onComplete: @escaping (ClipboardReceipt) -> Void,
         onStatus: @escaping (String, Bool) -> Void,
+        onStart: @escaping () -> Void = {},
         onReject: @escaping (UUID) -> Void = { _ in }
     ) {
         queue.async {
@@ -592,6 +596,7 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
                     let metadata = try ClipboardTransferCodec.decodeStart(payload)
                     packetID = metadata.id
                     try self.start(metadata)
+                    onStart()
                     onStatus("Receiving clipboard item: \(metadata.name)", false)
                 case .item:
                     let item = try ClipboardTransferCodec.decodeItem(payload)
@@ -635,20 +640,32 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
         let capacity = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             .volumeAvailableCapacityForImportantUsage
         guard let capacity, capacity > 0 else { throw ClipboardError.cannotCheckDiskSpace }
-        let (required, overflow) = metadata.size.addingReportingOverflow(Self.diskReserve)
+        let announcedSize = metadata.streamsUnknownSize == true ? 0 : metadata.size
+        let (required, overflow) = announcedSize.addingReportingOverflow(Self.diskReserve)
         guard !overflow, required <= UInt64(capacity) else { throw ClipboardError.insufficientDiskSpace }
+        let capacityBudget = UInt64(capacity) - Self.diskReserve
 
         let staging = directory.appendingPathComponent(".incoming-\(metadata.id.uuidString)")
         guard !fileManager.fileExists(atPath: staging.path) else { throw ClipboardError.invalidTransfer }
         if metadata.isDirectory {
             try fileManager.createDirectory(at: staging, withIntermediateDirectories: false)
-            let transfer = Incoming(metadata: metadata, stagingURL: staging, handle: nil)
+            let transfer = Incoming(
+                metadata: metadata,
+                stagingURL: staging,
+                handle: nil,
+                capacityBudget: capacityBudget
+            )
             try prepareDirectory(staging, permissions: metadata.permissions, transfer: transfer)
             incoming = transfer
         } else {
             guard fileManager.createFile(atPath: staging.path, contents: nil),
                   let handle = try? FileHandle(forWritingTo: staging) else { throw ClipboardError.cannotSaveTransfer }
-            incoming = Incoming(metadata: metadata, stagingURL: staging, handle: handle)
+            incoming = Incoming(
+                metadata: metadata,
+                stagingURL: staging,
+                handle: handle,
+                capacityBudget: capacityBudget
+            )
         }
     }
 
@@ -666,8 +683,13 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
             return
         }
 
-        let (expectedReceived, overflow) = incoming.received.addingReportingOverflow(item.size)
-        guard !overflow, expectedReceived <= incoming.metadata.size else { throw ClipboardError.invalidTransfer }
+        let (declared, overflow) = incoming.declared.addingReportingOverflow(item.size)
+        guard !overflow, incoming.expected.map({ declared <= $0 }) ?? true else {
+            throw ClipboardError.invalidTransfer
+        }
+        guard item.size <= incoming.capacityBudget else { throw ClipboardError.insufficientDiskSpace }
+        incoming.declared = declared
+        incoming.capacityBudget -= item.size
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard FileManager.default.createFile(atPath: url.path, contents: nil),
               let handle = try? FileHandle(forWritingTo: url) else { throw ClipboardError.cannotSaveTransfer }
@@ -689,7 +711,10 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
 
     private func finish(_ id: UUID) throws -> URL {
         guard let incoming, incoming.metadata.id == id, incoming.currentRemaining == 0,
-              incoming.received == incoming.metadata.size else { throw ClipboardError.invalidTransfer }
+              incoming.received == incoming.declared,
+              incoming.expected.map({ incoming.received == $0 }) ?? true else {
+            throw ClipboardError.invalidTransfer
+        }
         try finishCurrentFile(incoming)
         for (url, mode) in incoming.deferredDirectoryPermissions.reversed() {
             try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
@@ -833,11 +858,13 @@ enum ClipboardSelfCheck {
         let completed = DispatchSemaphore(value: 0)
         var receivedURL: URL?
         var receiveError = false
+        var didStart = false
         try! ClipboardTransferSender.send(source, using: { data, completion in
             precondition(data.count <= ClipboardTransferCodec.maximumChunkSize + 128)
             let messages = try! WireParser().append(WireCodec.frame(.clipboard, payload: data))
             precondition(messages.count == 1 && messages[0].0 == .clipboard)
             receiver.receive(messages[0].1, onComplete: {
+                precondition(didStart)
                 if case .file(let url) = $0 { receivedURL = url }
                 completed.signal()
             }, onStatus: { _, isError in
@@ -845,6 +872,9 @@ enum ClipboardSelfCheck {
                     receiveError = true
                     completed.signal()
                 }
+            }, onStart: {
+                precondition(!didStart)
+                didStart = true
             })
             completion(true)
         })
