@@ -42,6 +42,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private let imageLayer = CALayer()
+    private let magnifierGuideOutlineLayer = CAShapeLayer()
     private let magnifierGuideLayer = CAShapeLayer()
     private let magnifierTargetLayer = CAShapeLayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 176, height: 176))
@@ -126,6 +127,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         super.layoutSubviews()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        magnifierGuideOutlineLayer.frame = bounds
         magnifierGuideLayer.frame = bounds
         magnifierTargetLayer.frame = bounds
         CATransaction.commit()
@@ -366,8 +368,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private func configureMagnifierGuide() {
-        let guideColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 0.98).cgColor
-        for shapeLayer in [magnifierGuideLayer, magnifierTargetLayer] {
+        let targetColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 0.98).cgColor
+        for shapeLayer in [magnifierGuideOutlineLayer, magnifierGuideLayer, magnifierTargetLayer] {
             shapeLayer.contentsScale = traitCollection.displayScale
             shapeLayer.lineCap = .round
             shapeLayer.lineJoin = .round
@@ -378,13 +380,19 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             shapeLayer.isHidden = true
             layer.addSublayer(shapeLayer)
         }
+        magnifierGuideOutlineLayer.fillColor = UIColor.clear.cgColor
+        magnifierGuideOutlineLayer.strokeColor = UIColor.white.cgColor
+        magnifierGuideOutlineLayer.lineCap = .butt
+        magnifierGuideOutlineLayer.lineWidth = 2
+        magnifierGuideOutlineLayer.lineDashPattern = [3, 3]
+        magnifierGuideOutlineLayer.shadowOpacity = 0
         magnifierGuideLayer.fillColor = UIColor.clear.cgColor
-        magnifierGuideLayer.strokeColor = UIColor.white.cgColor
+        magnifierGuideLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 1).cgColor
         magnifierGuideLayer.lineCap = .butt
-        magnifierGuideLayer.lineWidth = 1
+        magnifierGuideLayer.lineWidth = 0.75
         magnifierGuideLayer.lineDashPattern = [3, 3]
         magnifierGuideLayer.shadowOpacity = 0
-        magnifierTargetLayer.fillColor = guideColor
+        magnifierTargetLayer.fillColor = targetColor
         magnifierTargetLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.9).cgColor
         magnifierTargetLayer.lineWidth = 1.25
     }
@@ -411,9 +419,13 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             let path = UIBezierPath()
             path.move(to: guide.start)
             path.addLine(to: guide.end)
+            magnifierGuideOutlineLayer.path = path.cgPath
+            magnifierGuideOutlineLayer.isHidden = false
             magnifierGuideLayer.path = path.cgPath
             magnifierGuideLayer.isHidden = false
         } else {
+            magnifierGuideOutlineLayer.path = nil
+            magnifierGuideOutlineLayer.isHidden = true
             magnifierGuideLayer.path = nil
             magnifierGuideLayer.isHidden = true
         }
@@ -462,6 +474,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func hideMagnifier() {
         magnifier.isHidden = true
         magnifier.snapshot = nil
+        magnifierGuideOutlineLayer.isHidden = true
+        magnifierGuideOutlineLayer.path = nil
         magnifierGuideLayer.isHidden = true
         magnifierGuideLayer.path = nil
         magnifierTargetLayer.isHidden = true
