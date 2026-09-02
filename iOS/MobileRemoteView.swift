@@ -488,7 +488,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             layer.addSublayer(shapeLayer)
         }
         magnifierGuideOutlineLayer.fillColor = UIColor.clear.cgColor
-        magnifierGuideOutlineLayer.strokeColor = UIColor.white.cgColor
+        magnifierGuideOutlineLayer.strokeColor = PrecisionMagnifier.chromeColor.cgColor
         magnifierGuideOutlineLayer.lineCap = .butt
         magnifierGuideOutlineLayer.lineWidth = PrecisionMagnifier.guideOutlineWidth
         magnifierGuideOutlineLayer.lineDashPattern = PrecisionMagnifier.guideDash.map { NSNumber(value: Double($0)) }
@@ -499,8 +499,9 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         magnifierGuideLayer.lineWidth = PrecisionMagnifier.guideWidth
         magnifierGuideLayer.lineDashPattern = PrecisionMagnifier.guideDash.map { NSNumber(value: Double($0)) }
         magnifierGuideLayer.shadowOpacity = 0
-        magnifierTargetLayer.fillColor = UIColor.black.cgColor
-        magnifierTargetLayer.strokeColor = nil
+        magnifierTargetLayer.fillColor = PrecisionMagnifier.chromeColor.cgColor
+        magnifierTargetLayer.strokeColor = PrecisionMagnifier.accentColor.cgColor
+        magnifierTargetLayer.lineWidth = 1.5
         magnifierTargetLayer.shadowOpacity = 0
     }
 
@@ -596,10 +597,12 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
 private final class PrecisionMagnifier: UIView {
     static let magnification: CGFloat = 3
-    static let guideWidth: CGFloat = 1.5
-    static let guideOutlineWidth: CGFloat = 2.75
-    static let guideDash: [CGFloat] = [4, 2]
-    static let guideColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 1)
+    static let guideWidth: CGFloat = 1.75
+    static let guideOutlineWidth: CGFloat = 3.5
+    static let guideDash: [CGFloat] = [5, 3]
+    static let chromeColor = UIColor(red: 0.025, green: 0.07, blue: 0.15, alpha: 0.96)
+    static let accentColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 1)
+    static let guideColor = accentColor
     var snapshot: UIImage?
     var sourcePoint = CGPoint.zero
     var crosshairPoint = CGPoint(x: 88, y: 88)
@@ -609,10 +612,10 @@ private final class PrecisionMagnifier: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
-        backgroundColor = .black
+        backgroundColor = Self.chromeColor
         layer.cornerRadius = frame.width / 2
-        layer.borderWidth = 1
-        layer.borderColor = UIColor.white.cgColor
+        layer.borderWidth = 2
+        layer.borderColor = Self.accentColor.cgColor
         clipsToBounds = true
     }
 
@@ -623,8 +626,8 @@ private final class PrecisionMagnifier: UIView {
         snapshot.draw(in: bounds)
 
         let innerFrame = UIBezierPath(ovalIn: bounds.insetBy(dx: 6, dy: 6))
-        UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.8).setStroke()
-        innerFrame.lineWidth = 2
+        Self.accentColor.withAlphaComponent(0.35).setStroke()
+        innerFrame.lineWidth = 1
         innerFrame.stroke()
 
         if let guideEnd = Self.guideEndpoint(
@@ -637,7 +640,7 @@ private final class PrecisionMagnifier: UIView {
             guide.addLine(to: guideEnd)
             guide.setLineDash(Self.guideDash, count: Self.guideDash.count, phase: 0)
             guide.lineCapStyle = .butt
-            UIColor.white.setStroke()
+            Self.chromeColor.setStroke()
             guide.lineWidth = Self.guideOutlineWidth
             guide.stroke()
             Self.guideColor.setStroke()
@@ -652,7 +655,7 @@ private final class PrecisionMagnifier: UIView {
                 width: 36,
                 height: 36
             ))
-            UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 1).setStroke()
+            Self.accentColor.setStroke()
             lockRing.lineWidth = 2.5
             lockRing.stroke()
         }
@@ -662,10 +665,10 @@ private final class PrecisionMagnifier: UIView {
         crosshair.addLine(to: CGPoint(x: crosshairPoint.x + 12, y: crosshairPoint.y))
         crosshair.move(to: CGPoint(x: crosshairPoint.x, y: crosshairPoint.y - 12))
         crosshair.addLine(to: CGPoint(x: crosshairPoint.x, y: crosshairPoint.y + 12))
-        UIColor.white.withAlphaComponent(0.9).setStroke()
+        Self.accentColor.setStroke()
         crosshair.lineWidth = 5
         crosshair.stroke()
-        UIColor(red: 0.01, green: 0.07, blue: 0.17, alpha: 1).setStroke()
+        Self.chromeColor.setStroke()
         crosshair.lineWidth = 2.5
         crosshair.stroke()
     }
