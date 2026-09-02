@@ -310,81 +310,99 @@ private struct RemoteSessionView: View {
     }
 
     private var compactMenuPanel: some View {
-        VStack(spacing: 8) {
-            Text(device.name)
-                .font(.headline)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Divider().overlay(.white.opacity(0.35))
-
-            Button {
-                keyboardActive.toggle()
-                compactMenuVisible = false
-            } label: {
-                Label("键盘", systemImage: "keyboard")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 12) {
+            HStack(spacing: 9) {
+                Image(systemName: "rectangle.grid.2x2.fill")
+                    .foregroundStyle(.cyan)
+                Text(device.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
             }
 
-            Button {
-                toggleDictation()
-                compactMenuVisible = false
-            } label: {
-                Label(dictation.isRecording ? "停止并发送语音" : "语音输入（\(dictationLanguageName)）", systemImage: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                Button {
+                    keyboardActive.toggle()
+                    compactMenuVisible = false
+                } label: {
+                    compactMenuTile("键盘", systemImage: "keyboard.fill", color: .blue)
+                }
 
-            Button {
-                toggleDictationLanguage()
-                compactMenuVisible = false
-            } label: {
-                Label(dictationLocale == "zh-CN" ? "切换到 English" : "切换到中文", systemImage: "globe")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .disabled(dictation.isRecording)
+                Button {
+                    toggleDictation()
+                    compactMenuVisible = false
+                } label: {
+                    compactMenuTile("\(dictationLanguageName)语音", systemImage: "mic.fill", color: .cyan)
+                }
 
-            Button {
-                model.sendPhoneClipboard()
-                compactMenuVisible = false
-            } label: {
-                Label("粘贴手机文本", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+                Button {
+                    toggleDictationLanguage()
+                    compactMenuVisible = false
+                } label: {
+                    compactMenuTile(dictationLocale == "zh-CN" ? "切换 English" : "切换中文", systemImage: "globe", color: .purple)
+                }
+                .disabled(dictation.isRecording)
 
-            Button {
-                toggleRotation()
-                compactMenuVisible = false
-            } label: {
-                Label(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向", systemImage: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+                Button {
+                    model.sendPhoneClipboard()
+                    compactMenuVisible = false
+                } label: {
+                    compactMenuTile("粘贴文本", systemImage: "doc.on.clipboard.fill", color: .orange)
+                }
 
-            if let file = model.receivedFileURL {
-                ShareLink(item: file) {
-                    Label("分享收到的文件", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    toggleRotation()
+                    compactMenuVisible = false
+                } label: {
+                    compactMenuTile(rotationQuarterTurns == 0 ? "向右旋转" : "恢复方向", systemImage: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left", color: .indigo)
+                }
+
+                if let file = model.receivedFileURL {
+                    ShareLink(item: file) {
+                        compactMenuTile("分享文件", systemImage: "square.and.arrow.up.fill", color: .green)
+                    }
+                }
+
+                Button(role: .destructive) {
+                    model.disconnect()
+                    dismiss()
+                } label: {
+                    compactMenuTile("退出控制", systemImage: "xmark", color: .red)
                 }
             }
-
-            Button(role: .destructive) {
-                model.disconnect()
-                dismiss()
-            } label: {
-                Label("退出控制", systemImage: "xmark")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.bordered)
-        .tint(.white)
         .foregroundStyle(.white)
         .padding(14)
-        .frame(width: 280)
-        .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 18))
+        .frame(width: 320)
+        .background(Color(red: 0.025, green: 0.055, blue: 0.12).opacity(0.96), in: RoundedRectangle(cornerRadius: 22))
         .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(.white.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(.cyan.opacity(0.35), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+
+    private func compactMenuTile(_ title: String, systemImage: String, color: Color) -> some View {
+        VStack(spacing: 7) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 36, height: 36)
+                .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, minHeight: 72)
+        .padding(.horizontal, 6)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(.white.opacity(0.14), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private var controlBar: some View {
