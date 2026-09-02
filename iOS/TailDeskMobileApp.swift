@@ -190,8 +190,13 @@ private struct RemoteSessionView: View {
             VStack {
                 if model.phase == .controlling && usesCompactControls {
                     HStack {
-                        compactControlMenu
-                        Spacer()
+                        if rotationQuarterTurns == 0 {
+                            compactControlMenu
+                            Spacer()
+                        } else {
+                            Spacer()
+                            compactControlMenu
+                        }
                     }
                     .padding(8)
                 } else {
@@ -222,15 +227,7 @@ private struct RemoteSessionView: View {
             }
 
             if dictation.isRecording {
-                Text(dictation.transcript.isEmpty ? "正在聆听（\(dictationLanguageName)）…再点一次发送" : dictation.transcript)
-                    .font(.callout)
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(24)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
+                dictationBanner
             }
         }
         .statusBarHidden(model.phase == .controlling)
@@ -258,15 +255,46 @@ private struct RemoteSessionView: View {
 
     private var compactControlMenu: some View {
         Button {
-            compactMenuVisible.toggle()
+            if dictation.isRecording {
+                toggleDictation()
+            } else {
+                compactMenuVisible.toggle()
+            }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: dictation.isRecording ? "stop.fill" : "ellipsis")
                 .font(.headline)
                 .frame(width: 38, height: 38)
-                .background(.black.opacity(0.55), in: Circle())
+                .background(dictation.isRecording ? .red.opacity(0.85) : .black.opacity(0.55), in: Circle())
                 .foregroundStyle(.white)
         }
-        .accessibilityLabel("控制菜单")
+        .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "控制菜单")
+        .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
+    }
+
+    @ViewBuilder private var dictationBanner: some View {
+        if rotationQuarterTurns == 0 {
+            dictationBannerContent
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        } else {
+            dictationBannerContent
+                .frame(width: 300)
+                .rotationEffect(.degrees(-Double(rotationQuarterTurns) * 90))
+                .frame(width: 80, height: 300)
+                .padding(12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+
+    private var dictationBannerContent: some View {
+        Text(dictation.transcript.isEmpty ? "正在聆听（\(dictationLanguageName)）…点击红色停止按钮发送" : dictation.transcript)
+            .font(.callout)
+            .foregroundStyle(.white)
+            .lineLimit(3)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var compactMenuPanel: some View {
@@ -453,6 +481,14 @@ private final class VoiceDictation: NSObject, ObservableObject {
     private var tapInstalled = false
     private var pendingStart = false
 
+    override init() {
+        super.init()
+#if DEBUG
+        assert(Self.segmentLimit(for: "zh-CN") == 36)
+        assert(Self.segmentLimit(for: "en-US") == 80)
+#endif
+    }
+
     func toggle(localeIdentifier: String, sendText: @escaping (String) -> Void) {
         if isRecording {
             finish(send: true)
@@ -515,12 +551,18 @@ private final class VoiceDictation: NSObject, ObservableObject {
             tapInstalled = true
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor in
-                    guard let self, self.isRecording else { return }
+                    guard let self, self.isRecording, self.request === request else { return }
                     if let result {
                         self.transcript = result.bestTranscription.formattedString
-                        if result.isFinal { self.finish(send: true) }
+                        if result.isFinal || self.transcript.count >= Self.segmentLimit(for: self.localeIdentifier) {
+                            self.flushAndContinue()
+                        }
                     } else if error != nil {
-                        self.fail("语音识别失败，请重试。")
+                        if self.transcript.isEmpty {
+                            self.fail("语音识别失败，请重试。")
+                        } else {
+                            self.flushAndContinue()
+                        }
                     }
                 }
             }
@@ -533,11 +575,34 @@ private final class VoiceDictation: NSObject, ObservableObject {
         }
     }
 
+    private static func segmentLimit(for localeIdentifier: String) -> Int {
+        localeIdentifier == "zh-CN" ? 36 : 80
+    }
+
+    private func flushAndContinue() {
+        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let completion = sendText
+        stopRecording()
+        transcript = ""
+        completion?(text + (localeIdentifier == "en-US" ? " " : ""))
+        pendingStart = true
+        startRecording()
+    }
+
     private func finish(send: Bool) {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let completion = sendText
         sendText = nil
         pendingStart = false
+        stopRecording()
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: .mixWithOthers)
+        try? session.setActive(true)
+        if send, !text.isEmpty { completion?(text) }
+    }
+
+    private func stopRecording() {
         isRecording = false
         audioEngine.stop()
         if tapInstalled {
@@ -549,10 +614,6 @@ private final class VoiceDictation: NSObject, ObservableObject {
         request = nil
         recognitionTask = nil
         recognizer = nil
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: .mixWithOthers)
-        try? session.setActive(true)
-        if send, !text.isEmpty { completion?(text) }
     }
 
     private func fail(_ message: String) {
