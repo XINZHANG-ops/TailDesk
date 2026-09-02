@@ -357,17 +357,31 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
         var active: Binding<Bool>
         let sendText: (String) -> Void
         let sendKey: (UInt16) -> Void
+        private var deleteStreak = 0
+        private var lastDeleteTime: TimeInterval = 0
 
         init(active: Binding<Bool>, sendText: @escaping (String) -> Void, sendKey: @escaping (UInt16) -> Void) {
             self.active = active
             self.sendText = sendText
             self.sendKey = sendKey
+#if DEBUG
+            assert(Self.deleteRepeatCount(streak: 1) == 1)
+            assert(Self.deleteRepeatCount(streak: 8) == 2)
+            assert(Self.deleteRepeatCount(streak: 18) == 3)
+#endif
         }
 
         func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             if string.isEmpty {
-                sendKey(51) // macOS Delete
+                let now = ProcessInfo.processInfo.systemUptime
+                let continuationWindow = deleteStreak >= 4 ? 1.5 : 0.7
+                deleteStreak = now - lastDeleteTime <= continuationWindow ? deleteStreak + 1 : 1
+                lastDeleteTime = now
+                for _ in 0..<Self.deleteRepeatCount(streak: deleteStreak) {
+                    sendKey(51) // macOS Delete
+                }
             } else {
+                deleteStreak = 0
                 sendText(string)
             }
             return false
@@ -379,7 +393,12 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
         }
 
         func textFieldDidEndEditing(_ textField: UITextField) {
+            deleteStreak = 0
             active.wrappedValue = false
+        }
+
+        private static func deleteRepeatCount(streak: Int) -> Int {
+            streak >= 18 ? 3 : (streak >= 8 ? 2 : 1)
         }
     }
 }

@@ -157,6 +157,7 @@ private struct RemoteSessionView: View {
     let device: SavedMac
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @AppStorage("TailDesk.dictationLocale") private var dictationLocale = "zh-CN"
     @StateObject private var dictation = VoiceDictation()
     @State private var keyboardActive = false
     @State private var rotationQuarterTurns = 0
@@ -186,25 +187,9 @@ private struct RemoteSessionView: View {
             }
 
             VStack {
-                if model.phase == .controlling && verticalSizeClass == .compact {
+                if model.phase == .controlling && usesCompactControls {
                     HStack {
                         compactControlMenu
-                        Button(action: toggleDictation) {
-                            Image(systemName: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
-                                .font(.headline)
-                                .frame(width: 38, height: 38)
-                                .background(.black.opacity(0.55), in: Circle())
-                                .foregroundStyle(dictation.isRecording ? .red : .white)
-                        }
-                        .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "语音输入")
-                        Button(action: rotateLeft) {
-                            Image(systemName: "rotate.left")
-                                .font(.headline)
-                                .frame(width: 38, height: 38)
-                                .background(.black.opacity(0.55), in: Circle())
-                                .foregroundStyle(.white)
-                        }
-                        .accessibilityLabel("向左旋转画面")
                         Spacer()
                     }
                     .padding(8)
@@ -212,7 +197,7 @@ private struct RemoteSessionView: View {
                     controlBar
                 }
                 Spacer()
-                if model.phase == .controlling && verticalSizeClass != .compact {
+                if model.phase == .controlling && !usesCompactControls {
                     Text("单指移动 · 点按左键 · 点按后长按拖拽 · 双指点按右键 · 双指滚动")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.8))
@@ -227,7 +212,7 @@ private struct RemoteSessionView: View {
                 .opacity(0.01)
 
             if dictation.isRecording {
-                Text(dictation.transcript.isEmpty ? "正在聆听…再点一次发送" : dictation.transcript)
+                Text(dictation.transcript.isEmpty ? "正在聆听（\(dictationLanguageName)）…再点一次发送" : dictation.transcript)
                     .font(.callout)
                     .foregroundStyle(.white)
                     .lineLimit(3)
@@ -262,7 +247,15 @@ private struct RemoteSessionView: View {
         Menu {
             Section(device.name) {
                 Button("键盘", systemImage: "keyboard") { keyboardActive.toggle() }
+                Button(dictation.isRecording ? "停止并发送语音" : "语音输入（\(dictationLanguageName)）", systemImage: dictation.isRecording ? "stop.circle.fill" : "mic.fill") {
+                    toggleDictation()
+                }
+                Button(dictationLocale == "zh-CN" ? "切换到 English" : "切换到中文", systemImage: "globe") {
+                    toggleDictationLanguage()
+                }
+                .disabled(dictation.isRecording)
                 Button("粘贴手机文本", systemImage: "doc.on.clipboard") { model.sendPhoneClipboard() }
+                Button("向左旋转画面", systemImage: "rotate.left") { rotateLeft() }
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
                         Label("分享收到的文件", systemImage: "square.and.arrow.up")
@@ -306,6 +299,12 @@ private struct RemoteSessionView: View {
                     Image(systemName: dictation.isRecording ? "stop.circle.fill" : "mic.fill")
                 }
                 .accessibilityLabel(dictation.isRecording ? "停止并发送语音" : "语音输入")
+                Button(action: toggleDictationLanguage) {
+                    Text(dictationLocale == "zh-CN" ? "中" : "EN")
+                        .font(.caption.bold())
+                }
+                .disabled(dictation.isRecording)
+                .accessibilityLabel("语音语言：\(dictationLanguageName)")
                 Button { model.sendPhoneClipboard() } label: {
                     Image(systemName: "doc.on.clipboard")
                 }
@@ -348,11 +347,23 @@ private struct RemoteSessionView: View {
 
     private func toggleDictation() {
         keyboardActive = false
-        dictation.toggle(sendText: model.sendText)
+        dictation.toggle(localeIdentifier: dictationLocale, sendText: model.sendText)
     }
 
     private func rotateLeft() {
         rotationQuarterTurns = (rotationQuarterTurns + 1) % 4
+    }
+
+    private var usesCompactControls: Bool {
+        verticalSizeClass == .compact || !rotationQuarterTurns.isMultiple(of: 2)
+    }
+
+    private var dictationLanguageName: String {
+        dictationLocale == "zh-CN" ? "中文" : "English"
+    }
+
+    private func toggleDictationLanguage() {
+        dictationLocale = dictationLocale == "zh-CN" ? "en-US" : "zh-CN"
     }
 }
 
@@ -363,19 +374,21 @@ private final class VoiceDictation: NSObject, ObservableObject {
     @Published var errorMessage: String?
 
     private let audioEngine = AVAudioEngine()
-    private let recognizer = SFSpeechRecognizer(locale: .current)
+    private var recognizer: SFSpeechRecognizer?
+    private var localeIdentifier = "zh-CN"
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var sendText: ((String) -> Void)?
     private var tapInstalled = false
     private var pendingStart = false
 
-    func toggle(sendText: @escaping (String) -> Void) {
+    func toggle(localeIdentifier: String, sendText: @escaping (String) -> Void) {
         if isRecording {
             finish(send: true)
             return
         }
         self.sendText = sendText
+        self.localeIdentifier = localeIdentifier
         pendingStart = true
         transcript = ""
         errorMessage = nil
@@ -407,10 +420,11 @@ private final class VoiceDictation: NSObject, ObservableObject {
     }
 
     private func startRecording() {
-        guard let recognizer, recognizer.isAvailable else {
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)), recognizer.isAvailable else {
             fail("当前无法使用语音识别，请稍后重试。")
             return
         }
+        self.recognizer = recognizer
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -418,6 +432,8 @@ private final class VoiceDictation: NSObject, ObservableObject {
 
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
+            request.taskHint = .dictation
+            request.addsPunctuation = true
             self.request = request
 
             let input = audioEngine.inputNode
@@ -461,6 +477,7 @@ private final class VoiceDictation: NSObject, ObservableObject {
         recognitionTask?.cancel()
         request = nil
         recognitionTask = nil
+        recognizer = nil
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: .mixWithOthers)
         try? session.setActive(true)
