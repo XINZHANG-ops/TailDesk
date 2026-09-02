@@ -26,6 +26,8 @@ final class AppModel: ObservableObject {
     @Published var isHosting = false
     @Published private(set) var sessionState: SessionState = .idle
     @Published var currentFrame: CGImage?
+    @Published private(set) var remoteDisplays: [RemoteDisplay] = []
+    @Published private(set) var selectedRemoteDisplayID: UInt32?
     @Published var launchAtLoginWarning: String?
     @Published var phoneImportURL: URL?
 
@@ -78,12 +80,36 @@ final class AppModel: ObservableObject {
                 }
             }
         }
-        server.onInput = { [weak self] event in
-            guard event.kind == .requestKeyFrame else {
+        server.onInput = { [weak self, weak server] event in
+            if event.kind == .selectDisplay, let displayID = event.displayID {
+                Task { @MainActor in
+                    guard let self, let capture = self.captureSession else { return }
+                    do {
+                        try await capture.selectDisplay(displayID)
+                        if capture.displayID == displayID, let list = capture.displayList {
+                            server?.sendDisplayList(list)
+                        }
+                    } catch {
+                        guard self.captureSession === capture else { return }
+                        self.setStatus(error.localizedDescription, isError: true)
+                    }
+                }
+            } else if event.kind == .requestDisplayList {
+                Task { @MainActor in
+                    for _ in 0..<20 {
+                        guard let self, let capture = self.captureSession else { return }
+                        if let list = capture.displayList {
+                            server?.sendDisplayList(list)
+                            return
+                        }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                }
+            } else if event.kind != .requestKeyFrame {
                 InputInjector.post(event)
-                return
+            } else {
+                Task { @MainActor in self?.captureSession?.requestKeyFrame() }
             }
-            Task { @MainActor in self?.captureSession?.requestKeyFrame() }
         }
         server.onClipboard = { [weak clipboard] data in
             Task { @MainActor in clipboard?.receive(data) }
@@ -137,6 +163,8 @@ final class AppModel: ObservableObject {
         viewerClient = client
         viewerClipboardSync = clipboard
         sessionState = .dialing
+        remoteDisplays = []
+        selectedRemoteDisplayID = nil
         hostServer?.setOutgoingTarget(device.address)
 
         decoder.onFrame = { [weak self] frame in
@@ -176,6 +204,13 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 guard let self, self.sessionState == .controlling else { return }
                 clipboard?.receive(data)
+            }
+        }
+        client.onDisplayList = { [weak self, weak client] list in
+            Task { @MainActor in
+                guard let self, let client, self.viewerClient === client else { return }
+                self.remoteDisplays = list.displays
+                self.selectedRemoteDisplayID = list.selectedDisplayID
             }
         }
         clipboard.onSend = { [weak client] data in client?.sendClipboard(data) }
@@ -233,6 +268,8 @@ final class AppModel: ObservableObject {
         audioPlayer?.stop()
         audioPlayer = nil
         currentFrame = nil
+        remoteDisplays = []
+        selectedRemoteDisplayID = nil
         if sessionState == .dialing || sessionState.isViewerConnected {
             sessionState = isHosting ? .available : .idle
         }
@@ -255,7 +292,17 @@ final class AppModel: ObservableObject {
 
     func sendInput(_ event: RemoteInputEvent) {
         guard sessionState == .controlling else { return }
+        var event = event
+        event.displayID = selectedRemoteDisplayID
         viewerClient?.sendInput(event)
+    }
+
+    func selectRemoteDisplay(_ displayID: UInt32) {
+        guard isConnected, remoteDisplays.contains(where: { $0.id == displayID }),
+              selectedRemoteDisplayID != displayID else { return }
+        selectedRemoteDisplayID = displayID
+        currentFrame = nil
+        viewerClient?.sendInput(RemoteInputEvent(kind: .selectDisplay, displayID: displayID))
     }
 
     func requestScreenPermission() {

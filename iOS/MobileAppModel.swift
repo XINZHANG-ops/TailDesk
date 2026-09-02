@@ -24,6 +24,8 @@ final class MobileAppModel: ObservableObject {
     @Published private(set) var status = "等待连接"
     @Published private(set) var statusIsError = false
     @Published private(set) var canPaste = false
+    @Published private(set) var remoteDisplays: [RemoteDisplay] = []
+    @Published private(set) var selectedRemoteDisplayID: UInt32?
 
     private let storageKey = "TailDesk.savedMacs"
     private var client: ViewerClient?
@@ -71,6 +73,8 @@ final class MobileAppModel: ObservableObject {
         self.client = client
         phase = .connecting
         currentFrame = nil
+        remoteDisplays = []
+        selectedRemoteDisplayID = nil
         sharedPasteboardChangeCount = nil
         canPaste = UIPasteboard.general.hasStrings
         setStatus("正在连接 \(device.name)", isError: false)
@@ -98,6 +102,8 @@ final class MobileAppModel: ObservableObject {
                 self.audioPlayer?.stop()
                 self.audioPlayer = nil
                 self.currentFrame = nil
+                self.remoteDisplays = []
+                self.selectedRemoteDisplayID = nil
                 self.phase = .failed
                 self.setStatus(message ?? "远程连接已结束", isError: true)
             }
@@ -116,6 +122,13 @@ final class MobileAppModel: ObservableObject {
         }
         client.onClipboard = { [weak self] data in
             Task { @MainActor in self?.receiveClipboard(data) }
+        }
+        client.onDisplayList = { [weak self, weak client] list in
+            Task { @MainActor in
+                guard let self, let client, self.client === client else { return }
+                self.remoteDisplays = list.displays
+                self.selectedRemoteDisplayID = list.selectedDisplayID
+            }
         }
         client.connect(host: device.host)
 
@@ -145,7 +158,18 @@ final class MobileAppModel: ObservableObject {
 
     func sendInput(_ event: RemoteInputEvent) {
         guard phase == .controlling else { return }
+        var event = event
+        event.displayID = selectedRemoteDisplayID
         client?.sendInput(event)
+    }
+
+    func selectRemoteDisplay(_ displayID: UInt32) {
+        guard phase == .previewing || phase == .controlling,
+              remoteDisplays.contains(where: { $0.id == displayID }),
+              selectedRemoteDisplayID != displayID else { return }
+        selectedRemoteDisplayID = displayID
+        currentFrame = nil
+        client?.sendInput(RemoteInputEvent(kind: .selectDisplay, displayID: displayID))
     }
 
     func sendText(_ text: String) {
@@ -227,6 +251,8 @@ final class MobileAppModel: ObservableObject {
         audioPlayer = nil
         currentFrame = nil
         canPaste = false
+        remoteDisplays = []
+        selectedRemoteDisplayID = nil
         self.phase = phase
     }
 

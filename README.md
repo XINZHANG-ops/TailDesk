@@ -30,6 +30,10 @@ On the controller Mac:
 3. Click the preview to enter control; exit control to disconnect and return
    to the device menu.
 
+If the controlled Mac has multiple displays, choose a display from the tabs
+above the preview or remote-control view. Pointer coordinates follow the
+selected display.
+
 ## iPhone controller
 
 The iPhone target requires the full Xcode app and iOS 17 or later:
@@ -40,6 +44,7 @@ The iPhone target requires the full Xcode app and iOS 17 or later:
 4. On a Mac, open **连接 iPhone** in TailDesk. In the iPhone app, tap
    **扫描 Mac 二维码** and scan the code.
 5. Select a Mac for a live preview, then tap the preview to start controlling.
+   Multi-display Macs expose the same display selector on iPhone.
 
 The QR code contains only the online Macs' MagicDNS names. It contains no IP
 address, password, pairing key, or Tailscale credential. The iPhone supports
@@ -66,7 +71,7 @@ rejected without interrupting the active controller, preventing control loops.
 
 ## Prototype limits
 
-- One display and one controller
+- One controller at a time; multiple host displays can be switched during a session
 - Low-latency H.264 over TCP, up to 1920×1080 at 60 fps and about 8 Mbps
 - Low-latency 48 kHz stereo Float32 PCM audio (about 3.1 Mbps)
 - No microphone, folders, files over 16 MB, or adaptive bitrate yet

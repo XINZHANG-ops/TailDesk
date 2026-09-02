@@ -141,7 +141,8 @@ enum InputInjector {
             postText(remote.text ?? "", source: source)
             return
         }
-        let bounds = CGDisplayBounds(CGMainDisplayID())
+        var bounds = CGDisplayBounds(remote.displayID ?? CGMainDisplayID())
+        if bounds.isEmpty { bounds = CGDisplayBounds(CGMainDisplayID()) }
         let point = CGPoint(
             x: bounds.minX + max(0, min(1, remote.x)) * bounds.width,
             y: bounds.minY + max(0, min(1, remote.y)) * bounds.height
@@ -177,7 +178,7 @@ enum InputInjector {
             event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(remote.keyCode), keyDown: true)
         case .keyUp:
             event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(remote.keyCode), keyDown: false)
-        case .text, .requestKeyFrame:
+        case .text, .requestKeyFrame, .requestDisplayList, .selectDisplay:
             event = nil
         }
         event?.flags = flags

@@ -224,18 +224,25 @@ struct ContentView: View {
     private var viewerView: some View {
         Group {
             if immersive && model.isConnected {
-                ZStack(alignment: .topLeading) {
+                ZStack {
                     RemoteDesktopView(frame: model.currentFrame) { event in
                         model.sendInput(event)
                     }
                     .background(Color.black)
 
-                    Button {
-                        leaveRemoteSession()
-                    } label: {
-                        Label("退出控制", systemImage: "xmark.circle.fill")
+                    VStack {
+                        HStack {
+                            exitControlButton
+                            Spacer()
+                            if model.remoteDisplays.count > 1 {
+                                displayPicker
+                                    .frame(maxWidth: 420)
+                                Spacer()
+                                exitControlButton.hidden()
+                            }
+                        }
+                        Spacer()
                     }
-                    .buttonStyle(.borderedProminent)
                     .padding(12)
                 }
             } else if model.isConnected {
@@ -288,6 +295,11 @@ struct ContentView: View {
 
                 Spacer()
 
+                if model.remoteDisplays.count > 1 {
+                    displayPicker
+                        .frame(maxWidth: 360)
+                }
+
                 Button(action: enterControl) {
                     Label("进入控制", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
@@ -338,6 +350,28 @@ struct ContentView: View {
     private var previewAspectRatio: CGFloat {
         guard let frame = model.currentFrame, frame.height > 0 else { return 16 / 10 }
         return CGFloat(frame.width) / CGFloat(frame.height)
+    }
+
+    private var displayPicker: some View {
+        Picker("显示器", selection: Binding(
+            get: { model.selectedRemoteDisplayID ?? model.remoteDisplays.first?.id ?? 0 },
+            set: model.selectRemoteDisplay
+        )) {
+            ForEach(model.remoteDisplays) { display in
+                Text(display.name).tag(display.id)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("远端显示器")
+    }
+
+    private var exitControlButton: some View {
+        Button {
+            leaveRemoteSession()
+        } label: {
+            Label("退出控制", systemImage: "xmark.circle.fill")
+        }
+        .buttonStyle(.borderedProminent)
     }
 
     private var permissionsView: some View {

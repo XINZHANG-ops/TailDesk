@@ -12,13 +12,73 @@ final class ScreenCaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private let captureQueue = DispatchQueue(label: "TailDesk.ScreenCapture")
     private var stream: SCStream?
     private var encoder: H264Encoder?
+    private var isStopped = true
+    private var isSwitching = false
+    private var pendingDisplayID: UInt32?
+    private(set) var displayID: UInt32?
+    private(set) var displayList: RemoteDisplayList?
 
     func start() async throws {
+        guard !isSwitching else { return }
+        isStopped = false
+        isSwitching = true
+        defer { isSwitching = false }
+        try await startCapture()
+        try await switchToPendingDisplay()
+    }
+
+    func selectDisplay(_ displayID: UInt32) async throws {
+        guard !isStopped else { return }
+        pendingDisplayID = displayID
+        guard !isSwitching else { return }
+        isSwitching = true
+        defer {
+            isSwitching = false
+            pendingDisplayID = nil
+        }
+        try await switchToPendingDisplay()
+    }
+
+    private func switchToPendingDisplay() async throws {
+        while let targetDisplayID = pendingDisplayID {
+            pendingDisplayID = nil
+            guard !isStopped else { return }
+            guard displayID != targetDisplayID else { continue }
+            let oldStream = stream
+            stream = nil
+            encoder = nil
+            try await oldStream?.stopCapture()
+            guard !isStopped else { return }
+            try await startCapture(preferredDisplayID: targetDisplayID)
+        }
+    }
+
+    private func startCapture(preferredDisplayID: UInt32? = nil) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        guard !isStopped else { return }
         let mainDisplayID = CGMainDisplayID()
-        guard let display = content.displays.first(where: { $0.displayID == mainDisplayID }) ?? content.displays.first else {
+        let displays = content.displays.sorted { left, right in
+            let leftIsMain = left.displayID == mainDisplayID
+            let rightIsMain = right.displayID == mainDisplayID
+            return leftIsMain == rightIsMain ? left.displayID < right.displayID : leftIsMain
+        }
+        guard let display = preferredDisplayID.flatMap({ id in displays.first { $0.displayID == id } })
+                ?? displays.first else {
             throw CaptureError.noDisplay
         }
+        displayID = display.displayID
+        displayList = RemoteDisplayList(
+            displays: displays.enumerated().map { index, item in
+                RemoteDisplay(
+                    id: item.displayID,
+                    name: item.displayID == mainDisplayID ? "主屏幕" : "显示器 \(index + 1)",
+                    width: item.width,
+                    height: item.height,
+                    isMain: item.displayID == mainDisplayID
+                )
+            },
+            selectedDisplayID: display.displayID
+        )
 
         let scale = min(1, min(1920.0 / Double(display.width), 1080.0 / Double(display.height)))
         let width = max(2, Int(Double(display.width) * scale) / 2 * 2)
@@ -50,14 +110,33 @@ final class ScreenCaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: captureQueue)
         self.stream = stream
-        try await stream.startCapture()
+        do {
+            try await stream.startCapture()
+        } catch {
+            self.stream = nil
+            self.encoder = nil
+            self.displayID = nil
+            self.displayList = nil
+            throw error
+        }
+        guard !isStopped else {
+            self.stream = nil
+            self.encoder = nil
+            self.displayID = nil
+            try? await stream.stopCapture()
+            return
+        }
         onStatus("Capturing \(width)×\(height) at up to 60 fps", false)
     }
 
     func stop() {
+        isStopped = true
         let stream = self.stream
         self.stream = nil
         encoder = nil
+        pendingDisplayID = nil
+        displayID = nil
+        displayList = nil
         Task { try? await stream?.stopCapture() }
     }
 

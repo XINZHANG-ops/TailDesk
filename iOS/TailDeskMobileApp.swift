@@ -284,6 +284,11 @@ private struct RemoteSessionView: View {
             } else {
                 VStack {
                     controlBar
+                    if model.remoteDisplays.count > 1 {
+                        displayPicker
+                            .frame(maxWidth: 320)
+                            .padding(.top, 2)
+                    }
                     Spacer()
                     if model.phase == .controlling {
                         Text("单指移动 · 点按左键 · 长按精确点击 · 停稳震动后拖拽 · 双指滚动")
@@ -489,6 +494,10 @@ private struct RemoteSessionView: View {
                 Spacer()
             }
 
+            if model.remoteDisplays.count > 1 {
+                displayPicker
+            }
+
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 Button {
                     toggleKeyboard()
@@ -551,6 +560,22 @@ private struct RemoteSessionView: View {
                 .stroke(.cyan.opacity(0.35), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+    }
+
+    private var displayPicker: some View {
+        Picker("显示器", selection: Binding(
+            get: { model.selectedRemoteDisplayID ?? model.remoteDisplays.first?.id ?? 0 },
+            set: model.selectRemoteDisplay
+        )) {
+            ForEach(model.remoteDisplays) { display in
+                Text(display.name).tag(display.id)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(.cyan)
+        .padding(6)
+        .background(Color(red: 0.025, green: 0.055, blue: 0.12).opacity(0.94), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityLabel("远端显示器")
     }
 
     private func compactMenuTile(_ title: String, systemImage: String, color: Color) -> some View {

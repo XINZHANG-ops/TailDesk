@@ -74,6 +74,11 @@ final class HostServer {
         peer?.send(.audioFrame, payload: data)
     }
 
+    func sendDisplayList(_ list: RemoteDisplayList) {
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        peer?.send(.displayList, payload: data)
+    }
+
     func sendClipboard(_ data: Data) {
         peer?.send(.clipboard, payload: data)
     }
@@ -253,6 +258,7 @@ final class ViewerClient {
     var onVideoFrame: (Data) -> Void = { _ in }
     var onAudioFrame: (Data) -> Void = { _ in }
     var onClipboard: (Data) -> Void = { _ in }
+    var onDisplayList: (RemoteDisplayList) -> Void = { _ in }
 
     private let queue = DispatchQueue(label: "TailDesk.ViewerClient")
     private let parser = WireParser()
@@ -348,6 +354,7 @@ final class ViewerClient {
             case .accepted:
                 authenticated = true
                 onStatus("Connected and authenticated", false)
+                sendInput(RemoteInputEvent(kind: .requestDisplayList))
                 onAuthenticated()
             case .identityRejected:
                 finishRejected("Tailscale identity rejected")
@@ -366,6 +373,9 @@ final class ViewerClient {
             onAudioFrame(message.1)
         case .clipboard where authenticated:
             onClipboard(message.1)
+        case .displayList where authenticated:
+            guard let list = try? JSONDecoder().decode(RemoteDisplayList.self, from: message.1) else { return }
+            onDisplayList(list)
         default:
             break
         }

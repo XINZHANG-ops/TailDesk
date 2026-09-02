@@ -7,6 +7,7 @@ enum WireMessage: UInt8 {
     case input = 5
     case clipboard = 6
     case audioFrame = 7
+    case displayList = 8
 }
 
 enum SessionResult: UInt8 {
@@ -79,6 +80,8 @@ struct RemoteInputEvent: Codable {
         case keyUp
         case text
         case requestKeyFrame
+        case requestDisplayList
+        case selectDisplay
     }
 
     var kind: Kind
@@ -90,6 +93,20 @@ struct RemoteInputEvent: Codable {
     var deltaY: Double = 0
     var text: String?
     var clickCount: Int?
+    var displayID: UInt32?
+}
+
+struct RemoteDisplay: Codable, Equatable, Identifiable {
+    let id: UInt32
+    let name: String
+    let width: Int
+    let height: Int
+    let isMain: Bool
+}
+
+struct RemoteDisplayList: Codable, Equatable {
+    let displays: [RemoteDisplay]
+    let selectedDisplayID: UInt32
 }
 
 enum RemoteModifier {
@@ -172,6 +189,14 @@ enum ProtocolSelfCheck {
         precondition(decodedClick.clickCount == 2)
         let keyFrameRequest = RemoteInputEvent(kind: .requestKeyFrame)
         precondition(try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(keyFrameRequest)).kind == .requestKeyFrame)
+        let displayListRequest = RemoteInputEvent(kind: .requestDisplayList)
+        precondition(try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(displayListRequest)).kind == .requestDisplayList)
         precondition(WireMessage(rawValue: 7) == .audioFrame)
+        let displays = RemoteDisplayList(
+            displays: [RemoteDisplay(id: 1, name: "主屏幕", width: 1920, height: 1080, isMain: true)],
+            selectedDisplayID: 1
+        )
+        precondition(try! JSONDecoder().decode(RemoteDisplayList.self, from: JSONEncoder().encode(displays)) == displays)
+        precondition(WireMessage(rawValue: 8) == .displayList)
     }
 }
