@@ -488,7 +488,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             layer.addSublayer(shapeLayer)
         }
         magnifierGuideOutlineLayer.fillColor = UIColor.clear.cgColor
-        magnifierGuideOutlineLayer.strokeColor = PrecisionMagnifier.chromeColor.cgColor
+        magnifierGuideOutlineLayer.strokeColor = PrecisionMagnifier.guideOutlineColor.cgColor
         magnifierGuideOutlineLayer.lineCap = .butt
         magnifierGuideOutlineLayer.lineWidth = PrecisionMagnifier.guideOutlineWidth
         magnifierGuideOutlineLayer.lineDashPattern = PrecisionMagnifier.guideDash.map { NSNumber(value: Double($0)) }
@@ -499,7 +499,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         magnifierGuideLayer.lineWidth = PrecisionMagnifier.guideWidth
         magnifierGuideLayer.lineDashPattern = PrecisionMagnifier.guideDash.map { NSNumber(value: Double($0)) }
         magnifierGuideLayer.shadowOpacity = 0
-        magnifierTargetLayer.fillColor = PrecisionMagnifier.chromeColor.cgColor
+        magnifierTargetLayer.fillColor = PrecisionMagnifier.guideOutlineColor.cgColor
         magnifierTargetLayer.strokeColor = PrecisionMagnifier.accentColor.cgColor
         magnifierTargetLayer.lineWidth = 1.5
         magnifierTargetLayer.shadowOpacity = 0
@@ -602,6 +602,7 @@ private final class PrecisionMagnifier: UIView {
     static let guideDash: [CGFloat] = [5, 3]
     static let chromeColor = UIColor(red: 0.025, green: 0.07, blue: 0.15, alpha: 0.96)
     static let accentColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 1)
+    static let guideOutlineColor = UIColor.white.withAlphaComponent(0.92)
     static let guideColor = accentColor
     var snapshot: UIImage?
     var sourcePoint = CGPoint.zero
@@ -625,11 +626,6 @@ private final class PrecisionMagnifier: UIView {
         guard let snapshot else { return }
         snapshot.draw(in: bounds)
 
-        let innerFrame = UIBezierPath(ovalIn: bounds.insetBy(dx: 6, dy: 6))
-        Self.accentColor.withAlphaComponent(0.35).setStroke()
-        innerFrame.lineWidth = 1
-        innerFrame.stroke()
-
         if let guideEnd = Self.guideEndpoint(
             from: crosshairPoint,
             direction: guideDirection,
@@ -640,7 +636,7 @@ private final class PrecisionMagnifier: UIView {
             guide.addLine(to: guideEnd)
             guide.setLineDash(Self.guideDash, count: Self.guideDash.count, phase: 0)
             guide.lineCapStyle = .butt
-            Self.chromeColor.setStroke()
+            Self.guideOutlineColor.setStroke()
             guide.lineWidth = Self.guideOutlineWidth
             guide.stroke()
             Self.guideColor.setStroke()
@@ -665,10 +661,10 @@ private final class PrecisionMagnifier: UIView {
         crosshair.addLine(to: CGPoint(x: crosshairPoint.x + 12, y: crosshairPoint.y))
         crosshair.move(to: CGPoint(x: crosshairPoint.x, y: crosshairPoint.y - 12))
         crosshair.addLine(to: CGPoint(x: crosshairPoint.x, y: crosshairPoint.y + 12))
-        Self.accentColor.setStroke()
+        Self.guideOutlineColor.setStroke()
         crosshair.lineWidth = 5
         crosshair.stroke()
-        Self.chromeColor.setStroke()
+        Self.accentColor.setStroke()
         crosshair.lineWidth = 2.5
         crosshair.stroke()
     }
