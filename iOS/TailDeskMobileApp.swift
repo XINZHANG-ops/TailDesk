@@ -172,7 +172,7 @@ private struct RemoteSessionView: View {
                 rotationQuarterTurns: rotationQuarterTurns,
                 sendInput: model.sendInput
             )
-            .ignoresSafeArea()
+            .ignoresSafeArea(.container)
 
             if model.phase == .connecting || model.currentFrame == nil {
                 statusPanel
