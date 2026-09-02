@@ -67,14 +67,16 @@ final class AppModel: ObservableObject {
                 self.setStatus("Simultaneous connection resolved: this Mac will be controlled", isError: false)
             }
         }
-        server.onControllerConnected = { [weak self, weak server] connected in
+        server.onControllerConnected = { [weak self, weak server, weak clipboard] connected in
             Task { @MainActor in
                 guard let self, let server, self.hostServer === server else { return }
                 if connected {
                     self.disconnectViewer()
                     self.sessionState = .beingControlled
+                    clipboard?.start()
                     self.startCapture()
                 } else {
+                    clipboard?.stop()
                     if self.sessionState == .beingControlled { self.sessionState = .available }
                     self.stopCapture()
                 }
@@ -112,14 +114,19 @@ final class AppModel: ObservableObject {
             }
         }
         server.onClipboard = { [weak clipboard] data in
-            Task { @MainActor in clipboard?.receive(data) }
+            clipboard?.receive(data)
         }
-        clipboard.onSend = { [weak server] data in server?.sendClipboard(data) }
+        clipboard.onSend = { [weak server] data, completion in
+            guard let server else {
+                completion(false)
+                return
+            }
+            server.sendClipboard(data, completion: completion)
+        }
         clipboard.onStatus = statusHandler
 
         do {
             try server.start()
-            clipboard.start()
             isHosting = true
             if sessionState == .idle { sessionState = .available }
             status = "Available automatically over Tailscale"
@@ -200,11 +207,8 @@ final class AppModel: ObservableObject {
         audioPlayer.onError = { [weak self] error in
             Task { @MainActor in self?.setStatus(error.localizedDescription, isError: true) }
         }
-        client.onClipboard = { [weak self, weak clipboard] data in
-            Task { @MainActor in
-                guard let self, self.sessionState == .controlling else { return }
-                clipboard?.receive(data)
-            }
+        client.onClipboard = { [weak clipboard] data in
+            clipboard?.receive(data)
         }
         client.onDisplayList = { [weak self, weak client] list in
             Task { @MainActor in
@@ -213,7 +217,13 @@ final class AppModel: ObservableObject {
                 self.selectedRemoteDisplayID = list.selectedDisplayID
             }
         }
-        clipboard.onSend = { [weak client] data in client?.sendClipboard(data) }
+        clipboard.onSend = { [weak client] data, completion in
+            guard let client else {
+                completion(false)
+                return
+            }
+            client.sendClipboard(data, completion: completion)
+        }
         clipboard.onStatus = statusHandler
         client.connect(host: device.address)
         status = "Connecting to \(device.name)"

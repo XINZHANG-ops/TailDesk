@@ -222,6 +222,15 @@ final class MobileAppModel: ObservableObject {
     }
 
     private func receiveClipboard(_ data: Data) {
+        if let (kind, payload) = ClipboardTransferCodec.unpack(data) {
+            if kind == .start, let metadata = try? ClipboardTransferCodec.decodeStart(payload) {
+                client?.sendClipboard(ClipboardTransferCodec.packet(
+                    .cancel,
+                    payload: ClipboardTransferCodec.finish(metadata.id)
+                ))
+            }
+            return
+        }
         do {
             switch try ClipboardCodec.decode(data) {
             case .text(let text):

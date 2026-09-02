@@ -83,8 +83,12 @@ final class HostServer {
         peer?.send(.displayList, payload: data)
     }
 
-    func sendClipboard(_ data: Data) {
-        peer?.send(.clipboard, payload: data)
+    func sendClipboard(_ data: Data, completion: @escaping (Bool) -> Void) {
+        guard let peer else {
+            completion(false)
+            return
+        }
+        peer.send(.clipboard, payload: data, completion: completion)
     }
 
     private func accept(_ connection: NWConnection) {
@@ -209,12 +213,17 @@ private final class HostPeer {
         onControllerConnected(false)
     }
 
-    func send(_ type: WireMessage, payload: Data) {
-        guard authenticated else { return }
+    func send(_ type: WireMessage, payload: Data, completion: ((Bool) -> Void)? = nil) {
+        guard authenticated else {
+            completion?(false)
+            return
+        }
         connection.send(content: WireCodec.frame(type, payload: payload), completion: .contentProcessed { [weak self] error in
-            guard let error else { return }
-            self?.onStatus("Controller connection: \(error.localizedDescription)", true)
-            self?.cancel()
+            completion?(error == nil)
+            if let error {
+                self?.onStatus("Controller connection: \(error.localizedDescription)", true)
+                self?.cancel()
+            }
         })
     }
 
@@ -324,8 +333,22 @@ final class ViewerClient {
         send(.clipboard, payload: data)
     }
 
-    private func send(_ type: WireMessage, payload: Data) {
-        connection?.send(content: WireCodec.frame(type, payload: payload), completion: .contentProcessed { _ in })
+    func sendClipboard(_ data: Data, completion: @escaping (Bool) -> Void) {
+        guard authenticated else {
+            completion(false)
+            return
+        }
+        send(.clipboard, payload: data, completion: completion)
+    }
+
+    private func send(_ type: WireMessage, payload: Data, completion: ((Bool) -> Void)? = nil) {
+        guard let connection else {
+            completion?(false)
+            return
+        }
+        connection.send(content: WireCodec.frame(type, payload: payload), completion: .contentProcessed {
+            completion?($0 == nil)
+        })
     }
 
     private func receive() {
