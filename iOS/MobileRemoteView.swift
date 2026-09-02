@@ -116,7 +116,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             lensRadius: 20,
             markerRadius: 4.5
         )
-        assert(guide?.start == CGPoint(x: 23, y: 0))
+        assert(guide?.start == CGPoint(x: 19, y: 0))
         assert(guide?.end == CGPoint(x: 95.5, y: 0))
 #endif
     }
@@ -383,14 +383,14 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         magnifierGuideOutlineLayer.fillColor = UIColor.clear.cgColor
         magnifierGuideOutlineLayer.strokeColor = UIColor.white.cgColor
         magnifierGuideOutlineLayer.lineCap = .butt
-        magnifierGuideOutlineLayer.lineWidth = 2
-        magnifierGuideOutlineLayer.lineDashPattern = [3, 3]
+        magnifierGuideOutlineLayer.lineWidth = 2.5
+        magnifierGuideOutlineLayer.lineDashPattern = [4, 2]
         magnifierGuideOutlineLayer.shadowOpacity = 0
         magnifierGuideLayer.fillColor = UIColor.clear.cgColor
         magnifierGuideLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 1).cgColor
         magnifierGuideLayer.lineCap = .butt
-        magnifierGuideLayer.lineWidth = 0.75
-        magnifierGuideLayer.lineDashPattern = [3, 3]
+        magnifierGuideLayer.lineWidth = 1.25
+        magnifierGuideLayer.lineDashPattern = [4, 2]
         magnifierGuideLayer.shadowOpacity = 0
         magnifierTargetLayer.fillColor = targetColor
         magnifierTargetLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.9).cgColor
@@ -441,7 +441,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         let dx = target.x - lensCenter.x
         let dy = target.y - lensCenter.y
         let distance = hypot(dx, dy)
-        let startDistance = lensRadius + 3
+        let startDistance = max(0, lensRadius - 1)
         guard distance > startDistance + markerRadius else { return nil }
         let unitX = dx / distance
         let unitY = dy / distance
