@@ -27,31 +27,21 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     var rotationQuarterTurns = 0 {
         didSet {
             guard rotationQuarterTurns != oldValue else { return }
-            resetZoom()
+            updateImageLayer()
         }
     }
     var displayedImage: CGImage? {
         didSet {
-            let size = displayedImage.map { CGSize(width: $0.width, height: $0.height) }
-            if size != imagePixelSize {
-                imagePixelSize = size
-                resetZoom()
-            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             imageLayer.contents = displayedImage
             CATransaction.commit()
+            updateImageLayer()
         }
     }
 
     private let imageLayer = CALayer()
-    private var imagePixelSize: CGSize?
-    private var zoomScale: CGFloat = 1
-    private var imageOrigin = CGPoint.zero
-    private var panStartOrigin = CGPoint.zero
-    private var pinchStartScale: CGFloat = 1
-    private var pinchAnchor = CGPoint(x: 0.5, y: 0.5)
-    private var lastBoundsSize = CGSize.zero
+    private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 132, height: 132))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -60,42 +50,34 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         imageLayer.contentsGravity = .resize
         layer.addSublayer(imageLayer)
         isMultipleTouchEnabled = true
+        magnifier.isHidden = true
+        addSubview(magnifier)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(tap(_:)))
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTap(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        tap.require(toFail: doubleTap)
 
         let move = UIPanGestureRecognizer(target: self, action: #selector(movePointer(_:)))
         move.minimumNumberOfTouches = 1
         move.maximumNumberOfTouches = 1
 
-        let drag = UILongPressGestureRecognizer(target: self, action: #selector(drag(_:)))
-        drag.numberOfTapsRequired = 1
-        drag.minimumPressDuration = 0.18
-        tap.require(toFail: drag)
-        move.require(toFail: drag)
+        let precisionClick = UILongPressGestureRecognizer(target: self, action: #selector(precisionClick(_:)))
+        precisionClick.minimumPressDuration = 0.32
+        precisionClick.allowableMovement = 18
+        tap.require(toFail: precisionClick)
+        move.require(toFail: precisionClick)
 
         let rightClick = UITapGestureRecognizer(target: self, action: #selector(rightClick(_:)))
         rightClick.numberOfTouchesRequired = 2
         let scroll = UIPanGestureRecognizer(target: self, action: #selector(scroll(_:)))
         scroll.minimumNumberOfTouches = 2
         scroll.maximumNumberOfTouches = 2
-        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:)))
         rightClick.require(toFail: scroll)
-        scroll.require(toFail: pinch)
 
-        for recognizer in [tap, doubleTap, move, drag, rightClick, scroll, pinch] {
+        for recognizer in [tap, move, precisionClick, rightClick, scroll] {
             recognizer.delegate = self
             addGestureRecognizer(recognizer)
         }
 
 #if DEBUG
-        assert(Self.clampedOrigin(
-            CGPoint(x: 100, y: -100),
-            contentSize: CGSize(width: 200, height: 200),
-            boundsSize: CGSize(width: 100, height: 100)
-        ) == CGPoint(x: 0, y: -100))
         assert(Self.unrotated(CGPoint(x: 0, y: 1), quarterTurns: 1) == .zero)
         assert(Self.unrotated(CGPoint(x: 1, y: 1), quarterTurns: 2) == .zero)
         assert(Self.unrotated(CGPoint(x: 1, y: 0), quarterTurns: 3) == .zero)
@@ -106,25 +88,10 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if bounds.size != lastBoundsSize {
-            lastBoundsSize = bounds.size
-            resetZoom()
-        } else {
-            updateImageLayer()
-        }
+        updateImageLayer()
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if gestureRecognizer is UIPinchGestureRecognizer {
-            return isInteractive && displayedImage != nil
-        }
-        if gestureRecognizer is UILongPressGestureRecognizer, zoomScale > 1.001 {
-            return false
-        }
-        if let pan = gestureRecognizer as? UIPanGestureRecognizer,
-           pan.maximumNumberOfTouches == 1, zoomScale > 1.001 {
-            return isInteractive
-        }
         return isInteractive && normalized(gestureRecognizer.location(in: self)) != nil
     }
 
@@ -141,65 +108,30 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func movePointer(_ sender: UIPanGestureRecognizer) {
-        if zoomScale > 1.001 {
-            switch sender.state {
-            case .began:
-                panStartOrigin = imageOrigin
-            case .changed:
-                let translation = sender.translation(in: self)
-                imageOrigin = clampedOrigin(CGPoint(
-                    x: panStartOrigin.x + translation.x,
-                    y: panStartOrigin.y + translation.y
-                ))
-                updateImageLayer()
-            default:
-                break
-            }
-            return
-        }
         guard let point = normalized(sender.location(in: self)) else { return }
         if sender.state == .began || sender.state == .changed { send(.mouseMove, point) }
     }
 
-    @objc private func doubleTap(_ sender: UITapGestureRecognizer) {
-        guard sender.state == .ended else { return }
-        if zoomScale > 1.001 {
-            resetZoom()
-        } else {
-            zoom(to: 2.5, around: sender.location(in: self))
+    @objc private func precisionClick(_ sender: UILongPressGestureRecognizer) {
+        guard let location = clampedToImage(sender.location(in: self)), let point = normalized(location) else {
+            hideMagnifier()
+            return
         }
-    }
-
-    @objc private func pinch(_ sender: UIPinchGestureRecognizer) {
-        guard let rect = currentImageRect else { return }
-        let location = sender.location(in: self)
         switch sender.state {
         case .began:
-            pinchStartScale = zoomScale
-            pinchAnchor = CGPoint(
-                x: min(1, max(0, (location.x - rect.minX) / rect.width)),
-                y: min(1, max(0, (location.y - rect.minY) / rect.height))
-            )
+            showMagnifier(at: location, capture: true)
+            send(.mouseMove, point)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .changed:
-            zoomScale = min(5, max(1, pinchStartScale * sender.scale))
-            guard let base = baseContentRect else { return }
-            let size = CGSize(width: base.width * zoomScale, height: base.height * zoomScale)
-            imageOrigin = clampedOrigin(CGPoint(
-                x: location.x - pinchAnchor.x * size.width,
-                y: location.y - pinchAnchor.y * size.height
-            ))
-            updateImageLayer()
-        default:
-            if zoomScale < 1.01 { resetZoom() }
-        }
-    }
-
-    @objc private func drag(_ sender: UILongPressGestureRecognizer) {
-        guard let point = normalized(sender.location(in: self)) else { return }
-        switch sender.state {
-        case .began: send(.leftMouseDown, point)
-        case .changed: send(.leftMouseDragged, point)
-        case .ended, .cancelled: send(.leftMouseUp, point)
+            showMagnifier(at: location, capture: false)
+            send(.mouseMove, point)
+        case .ended:
+            send(.leftMouseDown, point)
+            send(.leftMouseUp, point)
+            hideMagnifier()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case .cancelled, .failed:
+            hideMagnifier()
         default: break
         }
     }
@@ -244,51 +176,14 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private var currentImageRect: CGRect? {
-        guard let base = baseContentRect else { return nil }
-        return CGRect(
-            origin: imageOrigin,
-            size: CGSize(width: base.width * zoomScale, height: base.height * zoomScale)
-        )
+        baseContentRect
     }
 
-    private func zoom(to scale: CGFloat, around point: CGPoint) {
-        guard let current = currentImageRect, let base = baseContentRect else { return }
-        let anchor = CGPoint(
-            x: min(1, max(0, (point.x - current.minX) / current.width)),
-            y: min(1, max(0, (point.y - current.minY) / current.height))
-        )
-        zoomScale = min(5, max(1, scale))
-        let size = CGSize(width: base.width * zoomScale, height: base.height * zoomScale)
-        imageOrigin = clampedOrigin(CGPoint(
-            x: point.x - anchor.x * size.width,
-            y: point.y - anchor.y * size.height
-        ))
-        updateImageLayer()
-    }
-
-    private func resetZoom() {
-        zoomScale = 1
-        imageOrigin = baseContentRect?.origin ?? .zero
-        updateImageLayer()
-    }
-
-    private func clampedOrigin(_ proposed: CGPoint) -> CGPoint {
-        guard let base = baseContentRect else { return proposed }
-        return Self.clampedOrigin(
-            proposed,
-            contentSize: CGSize(width: base.width * zoomScale, height: base.height * zoomScale),
-            boundsSize: bounds.size
-        )
-    }
-
-    private static func clampedOrigin(_ proposed: CGPoint, contentSize: CGSize, boundsSize: CGSize) -> CGPoint {
-        CGPoint(
-            x: contentSize.width <= boundsSize.width
-                ? (boundsSize.width - contentSize.width) / 2
-                : min(0, max(boundsSize.width - contentSize.width, proposed.x)),
-            y: contentSize.height <= boundsSize.height
-                ? (boundsSize.height - contentSize.height) / 2
-                : min(0, max(boundsSize.height - contentSize.height, proposed.y))
+    private func clampedToImage(_ point: CGPoint) -> CGPoint? {
+        guard let rect = currentImageRect else { return nil }
+        return CGPoint(
+            x: min(rect.maxX, max(rect.minX, point.x)),
+            y: min(rect.maxY, max(rect.minY, point.y))
         )
     }
 
@@ -319,6 +214,67 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
                 .scaledBy(x: scale, y: scale)
         )
         CATransaction.commit()
+    }
+
+    private func showMagnifier(at point: CGPoint, capture: Bool) {
+        if capture {
+            magnifier.isHidden = true
+            magnifier.snapshot = UIGraphicsImageRenderer(bounds: bounds).image { context in
+                layer.render(in: context.cgContext)
+            }
+        }
+        magnifier.sourcePoint = point
+        let half = magnifier.bounds.width / 2
+        let gap = half + 42
+        let preferredY = point.y - gap
+        magnifier.center = CGPoint(
+            x: min(bounds.maxX - half - 8, max(bounds.minX + half + 8, point.x)),
+            y: preferredY - half > bounds.minY ? preferredY : min(bounds.maxY - half - 8, point.y + gap)
+        )
+        magnifier.isHidden = false
+        magnifier.setNeedsDisplay()
+    }
+
+    private func hideMagnifier() {
+        magnifier.isHidden = true
+        magnifier.snapshot = nil
+    }
+}
+
+private final class PrecisionMagnifier: UIView {
+    var snapshot: UIImage?
+    var sourcePoint = CGPoint.zero
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .black
+        layer.cornerRadius = frame.width / 2
+        layer.borderWidth = 3
+        layer.borderColor = UIColor.white.cgColor
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ rect: CGRect) {
+        guard let snapshot, let context = UIGraphicsGetCurrentContext() else { return }
+        let scale: CGFloat = 3
+        context.saveGState()
+        context.translateBy(x: bounds.midX, y: bounds.midY)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -sourcePoint.x, y: -sourcePoint.y)
+        snapshot.draw(at: .zero)
+        context.restoreGState()
+
+        let crosshair = UIBezierPath()
+        crosshair.move(to: CGPoint(x: bounds.midX - 12, y: bounds.midY))
+        crosshair.addLine(to: CGPoint(x: bounds.midX + 12, y: bounds.midY))
+        crosshair.move(to: CGPoint(x: bounds.midX, y: bounds.midY - 12))
+        crosshair.addLine(to: CGPoint(x: bounds.midX, y: bounds.midY + 12))
+        UIColor.systemBlue.setStroke()
+        crosshair.lineWidth = 2
+        crosshair.stroke()
     }
 }
 

@@ -198,7 +198,7 @@ private struct RemoteSessionView: View {
                 }
                 Spacer()
                 if model.phase == .controlling && !usesCompactControls {
-                    Text("单指移动 · 点按左键 · 点按后长按拖拽 · 双指点按右键 · 双指滚动")
+                    Text("单指移动 · 点按左键 · 长按精确点击 · 双指点按右键 · 双指滚动")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.8))
                         .padding(8)
