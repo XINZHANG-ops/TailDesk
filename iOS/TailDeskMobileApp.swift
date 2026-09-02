@@ -3,6 +3,21 @@ import Speech
 import SwiftUI
 import VisionKit
 
+@MainActor
+private enum MobileInterfaceOrientation {
+    static var current: UIInterfaceOrientation? { activeScene?.interfaceOrientation }
+
+    static func request(_ orientations: UIInterfaceOrientationMask) {
+        activeScene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
+    }
+
+    private static var activeScene: UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+    }
+}
+
 @main
 struct TailDeskMobileApp: App {
     @StateObject private var model = MobileAppModel()
@@ -162,6 +177,8 @@ private struct RemoteSessionView: View {
     @State private var keyboardActive = false
     @State private var rotationQuarterTurns = 0
     @State private var compactMenuVisible = false
+    @State private var interfaceOrientationBeforeKeyboard: UIInterfaceOrientation?
+    @State private var rotationBeforeKeyboard: Int?
 
     var body: some View {
         ZStack {
@@ -235,7 +252,11 @@ private struct RemoteSessionView: View {
         .onAppear { model.connect(to: device) }
         .onDisappear {
             dictation.cancel()
+            restoreLayoutAfterKeyboard()
             model.disconnect()
+        }
+        .onChange(of: keyboardActive) { _, active in
+            if !active { restoreLayoutAfterKeyboard() }
         }
         .onChange(of: model.phase) { _, phase in
             if phase != .controlling {
@@ -258,7 +279,7 @@ private struct RemoteSessionView: View {
             if dictation.isRecording {
                 toggleDictation()
             } else if keyboardActive {
-                keyboardActive = false
+                toggleKeyboard()
             } else {
                 compactMenuVisible.toggle()
             }
@@ -324,7 +345,7 @@ private struct RemoteSessionView: View {
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 Button {
-                    keyboardActive.toggle()
+                    toggleKeyboard()
                     compactMenuVisible = false
                 } label: {
                     compactMenuTile("键盘", systemImage: "keyboard.fill", color: .blue)
@@ -357,6 +378,7 @@ private struct RemoteSessionView: View {
                 } label: {
                     compactMenuTile(rotationQuarterTurns == 0 ? "向右旋转" : "恢复方向", systemImage: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left", color: .indigo)
                 }
+                .disabled(keyboardActive)
 
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
@@ -419,7 +441,7 @@ private struct RemoteSessionView: View {
             if model.phase == .controlling {
                 Spacer(minLength: 0)
 
-                Button { keyboardActive.toggle() } label: {
+                Button { toggleKeyboard() } label: {
                     controlBarTile(keyboardActive ? "keyboard.fill" : "keyboard", color: .blue, isActive: keyboardActive)
                 }
                 .accessibilityLabel(keyboardActive ? "收起键盘" : "打开键盘")
@@ -451,6 +473,7 @@ private struct RemoteSessionView: View {
                 Button(action: toggleRotation) {
                     controlBarTile(rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left", color: .indigo)
                 }
+                .disabled(keyboardActive)
                 .accessibilityLabel(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向")
 
                 if let file = model.receivedFileURL {
@@ -513,6 +536,33 @@ private struct RemoteSessionView: View {
     private func toggleDictation() {
         keyboardActive = false
         dictation.toggle(localeIdentifier: dictationLocale, sendText: model.sendText)
+    }
+
+    private func toggleKeyboard() {
+        guard !keyboardActive else {
+            keyboardActive = false
+            return
+        }
+        if rotationQuarterTurns != 0 {
+            rotationBeforeKeyboard = rotationQuarterTurns
+            rotationQuarterTurns = 0
+        }
+        if let orientation = MobileInterfaceOrientation.current, orientation.isLandscape {
+            interfaceOrientationBeforeKeyboard = orientation
+            MobileInterfaceOrientation.request(.portrait)
+        }
+        keyboardActive = true
+    }
+
+    private func restoreLayoutAfterKeyboard() {
+        if let rotationBeforeKeyboard {
+            rotationQuarterTurns = rotationBeforeKeyboard
+            self.rotationBeforeKeyboard = nil
+        }
+        if let orientation = interfaceOrientationBeforeKeyboard {
+            MobileInterfaceOrientation.request(orientation == .landscapeLeft ? .landscapeLeft : .landscapeRight)
+            interfaceOrientationBeforeKeyboard = nil
+        }
     }
 
     private func toggleRotation() {
