@@ -255,7 +255,9 @@ private struct RemoteSessionView: View {
                 }
                 .disabled(dictation.isRecording)
                 Button("粘贴手机文本", systemImage: "doc.on.clipboard") { model.sendPhoneClipboard() }
-                Button("向左旋转画面", systemImage: "rotate.left") { rotateLeft() }
+                Button(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向", systemImage: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left") {
+                    toggleRotation()
+                }
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
                         Label("分享收到的文件", systemImage: "square.and.arrow.up")
@@ -308,10 +310,10 @@ private struct RemoteSessionView: View {
                 Button { model.sendPhoneClipboard() } label: {
                     Image(systemName: "doc.on.clipboard")
                 }
-                Button(action: rotateLeft) {
-                    Image(systemName: "rotate.left")
+                Button(action: toggleRotation) {
+                    Image(systemName: rotationQuarterTurns == 0 ? "rotate.right" : "rotate.left")
                 }
-                .accessibilityLabel("向左旋转画面")
+                .accessibilityLabel(rotationQuarterTurns == 0 ? "向右旋转画面" : "恢复画面方向")
                 if let file = model.receivedFileURL {
                     ShareLink(item: file) {
                         Image(systemName: "square.and.arrow.up")
@@ -350,8 +352,8 @@ private struct RemoteSessionView: View {
         dictation.toggle(localeIdentifier: dictationLocale, sendText: model.sendText)
     }
 
-    private func rotateLeft() {
-        rotationQuarterTurns = (rotationQuarterTurns + 1) % 4
+    private func toggleRotation() {
+        rotationQuarterTurns = rotationQuarterTurns == 0 ? 3 : 0
     }
 
     private var usesCompactControls: Bool {
