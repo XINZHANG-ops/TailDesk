@@ -368,6 +368,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func configureMagnifierGuide() {
         let guideColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 0.98).cgColor
         for shapeLayer in [magnifierGuideLayer, magnifierTargetLayer] {
+            shapeLayer.contentsScale = traitCollection.displayScale
             shapeLayer.lineCap = .round
             shapeLayer.lineJoin = .round
             shapeLayer.shadowColor = UIColor.black.cgColor
@@ -378,9 +379,11 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             layer.addSublayer(shapeLayer)
         }
         magnifierGuideLayer.fillColor = UIColor.clear.cgColor
-        magnifierGuideLayer.strokeColor = guideColor
-        magnifierGuideLayer.lineWidth = 1.5
-        magnifierGuideLayer.lineDashPattern = [2, 4]
+        magnifierGuideLayer.strokeColor = UIColor.white.cgColor
+        magnifierGuideLayer.lineCap = .butt
+        magnifierGuideLayer.lineWidth = 1
+        magnifierGuideLayer.lineDashPattern = [3, 3]
+        magnifierGuideLayer.shadowOpacity = 0
         magnifierTargetLayer.fillColor = guideColor
         magnifierTargetLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.9).cgColor
         magnifierTargetLayer.lineWidth = 1.25
