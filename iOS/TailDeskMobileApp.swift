@@ -221,7 +221,7 @@ private struct RemoteSessionView: View {
                 }
                 Spacer()
                 if model.phase == .controlling && !usesCompactControls {
-                    Text("单指移动 · 点按左键 · 长按精确点击 · 双指点按右键 · 双指滚动")
+                    Text("单指移动 · 点按左键 · 长按精确点击 · 停稳震动后拖拽 · 双指滚动")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.8))
                         .padding(8)
@@ -313,7 +313,7 @@ private struct RemoteSessionView: View {
     }
 
     private var dictationBannerContent: some View {
-        Text(dictation.transcript.isEmpty ? "正在聆听（\(dictationLanguageName)）…点击红色停止按钮发送" : dictation.transcript)
+        Text(dictation.transcript.isEmpty ? "正在聆听（\(dictationLanguageName)）…点击停止按钮发送" : dictation.transcript)
             .font(.callout)
             .foregroundStyle(.white)
             .lineLimit(3)
@@ -596,12 +596,16 @@ private final class VoiceDictation: NSObject, ObservableObject {
     private var sendText: ((String) -> Void)?
     private var tapInstalled = false
     private var pendingStart = false
+    private var sentCharacterCount = 0
+    private var isFinalizing = false
+    private var finalizationWorkItem: DispatchWorkItem?
 
     override init() {
         super.init()
 #if DEBUG
-        assert(Self.segmentLimit(for: "zh-CN") == 100)
-        assert(Self.segmentLimit(for: "en-US") == 200)
+        assert(Self.flushThreshold(for: "zh-CN") == 160)
+        assert(Self.flushThreshold(for: "en-US") == 280)
+        assert(Self.flushBoundary(in: "alpha beta gamma", after: 0, before: 10) == 6)
 #endif
     }
 
@@ -610,10 +614,12 @@ private final class VoiceDictation: NSObject, ObservableObject {
             finish(send: true)
             return
         }
+        guard !isFinalizing else { return }
         self.sendText = sendText
         self.localeIdentifier = localeIdentifier
         pendingStart = true
         transcript = ""
+        sentCharacterCount = 0
         errorMessage = nil
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             Task { @MainActor in
@@ -667,18 +673,34 @@ private final class VoiceDictation: NSObject, ObservableObject {
             tapInstalled = true
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor in
-                    guard let self, self.isRecording, self.request === request else { return }
+                    guard let self, self.request === request,
+                          self.isRecording || self.isFinalizing else { return }
                     if let result {
                         self.transcript = result.bestTranscription.formattedString
-                        if result.isFinal || self.transcript.count >= Self.segmentLimit(for: self.localeIdentifier) {
-                            self.flushAndContinue()
+                        if self.isRecording { self.flushStablePrefixIfNeeded() }
+                        if result.isFinal {
+                            if self.isRecording {
+                                self.isRecording = false
+                                self.isFinalizing = true
+                                self.stopAudioCapture()
+                            }
+                            self.completeFinalization()
+                            return
                         }
-                    } else if error != nil {
-                        if self.transcript.isEmpty {
+                    }
+                    if error != nil {
+                        if self.isFinalizing {
+                            self.completeFinalization()
+                            return
+                        }
+                        guard !self.transcript.isEmpty else {
                             self.fail("语音识别失败，请重试。")
-                        } else {
-                            self.flushAndContinue()
+                            return
                         }
+                        self.isRecording = false
+                        self.isFinalizing = true
+                        self.stopAudioCapture()
+                        self.completeFinalization()
                     }
                 }
             }
@@ -691,45 +713,109 @@ private final class VoiceDictation: NSObject, ObservableObject {
         }
     }
 
-    private static func segmentLimit(for localeIdentifier: String) -> Int {
-        localeIdentifier == "zh-CN" ? 100 : 200
+    private static func flushThreshold(for localeIdentifier: String) -> Int {
+        localeIdentifier == "zh-CN" ? 160 : 280
     }
 
-    private func flushAndContinue() {
-        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        let completion = sendText
-        stopRecording()
-        transcript = ""
-        completion?(text + (localeIdentifier == "en-US" ? " " : ""))
-        pendingStart = true
-        startRecording()
+    private static func holdbackCount(for localeIdentifier: String) -> Int {
+        localeIdentifier == "zh-CN" ? 24 : 40
+    }
+
+    private static func flushBoundary(in text: String, after start: Int, before preferredEnd: Int) -> Int {
+        let characters = Array(text)
+        let end = min(characters.count, max(start, preferredEnd))
+        guard end > start else { return start }
+        let boundaries = Set("，。！？；,.!?; \n")
+        let searchStart = max(start, end - 60)
+        if let index = (searchStart..<end).reversed().first(where: { boundaries.contains(characters[$0]) }) {
+            return index + 1
+        }
+        return end
+    }
+
+    private func flushStablePrefixIfNeeded() {
+        let total = transcript.count
+        guard total - sentCharacterCount >= Self.flushThreshold(for: localeIdentifier) else { return }
+        let preferredEnd = total - Self.holdbackCount(for: localeIdentifier)
+        sendTranscript(through: Self.flushBoundary(
+            in: transcript,
+            after: sentCharacterCount,
+            before: preferredEnd
+        ))
+    }
+
+    private func sendTranscript(through end: Int) {
+        let safeStart = min(sentCharacterCount, transcript.count)
+        let safeEnd = min(transcript.count, max(safeStart, end))
+        guard safeEnd > safeStart else { return }
+        let startIndex = transcript.index(transcript.startIndex, offsetBy: safeStart)
+        let endIndex = transcript.index(transcript.startIndex, offsetBy: safeEnd)
+        let text = transcript[startIndex..<endIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { sendText?(text + (localeIdentifier == "en-US" ? " " : "")) }
+        sentCharacterCount = safeEnd
     }
 
     private func finish(send: Bool) {
-        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let completion = sendText
-        sendText = nil
         pendingStart = false
-        stopRecording()
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: .mixWithOthers)
-        try? session.setActive(true)
-        if send, !text.isEmpty { completion?(text) }
+        guard send else {
+            abortRecognition()
+            return
+        }
+        guard isRecording else { return }
+        isRecording = false
+        isFinalizing = true
+        stopAudioCapture()
+        request?.endAudio()
+
+        finalizationWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.completeFinalization() }
+        }
+        finalizationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: workItem)
     }
 
-    private func stopRecording() {
-        isRecording = false
+    private func stopAudioCapture() {
         audioEngine.stop()
         if tapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
         }
+    }
+
+    private func completeFinalization() {
+        guard isFinalizing else { return }
+        finalizationWorkItem?.cancel()
+        finalizationWorkItem = nil
+        sendTranscript(through: transcript.count)
+        sendText = nil
+        isFinalizing = false
+        recognitionTask?.cancel()
+        request = nil
+        recognitionTask = nil
+        recognizer = nil
+        restorePlaybackAudioSession()
+    }
+
+    private func abortRecognition() {
+        finalizationWorkItem?.cancel()
+        finalizationWorkItem = nil
+        isRecording = false
+        isFinalizing = false
+        stopAudioCapture()
         request?.endAudio()
         recognitionTask?.cancel()
         request = nil
         recognitionTask = nil
         recognizer = nil
+        sendText = nil
+        restorePlaybackAudioSession()
+    }
+
+    private func restorePlaybackAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: .mixWithOthers)
+        try? session.setActive(true)
     }
 
     private func fail(_ message: String) {

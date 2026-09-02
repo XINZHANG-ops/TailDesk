@@ -23,7 +23,11 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
 
 final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
-    var isInteractive = false
+    var isInteractive = false {
+        didSet {
+            if oldValue && !isInteractive { cancelPrecisionInteraction() }
+        }
+    }
     var rotationQuarterTurns = 0 {
         didSet {
             guard rotationQuarterTurns != oldValue else { return }
@@ -46,8 +50,14 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private let magnifierGuideLayer = CAShapeLayer()
     private let magnifierTargetLayer = CAShapeLayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 176, height: 176))
+    private static let precisionDragDwell: TimeInterval = 0.4
+    private static let precisionDwellMovement: CGFloat = 3
     private var lastMagnifierRefreshTime: TimeInterval = 0
     private var lastPrecisionPoint: CGPoint?
+    private var precisionDwellAnchor: CGPoint?
+    private var precisionDwellWorkItem: DispatchWorkItem?
+    private var precisionGestureActive = false
+    private var precisionDragging = false
     private var previousTapTime: TimeInterval = 0
     private var previousTapLocation = CGPoint.zero
 
@@ -94,6 +104,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(!Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.5, location: .zero))
         assert(!Self.didMove(from: .zero, to: CGPoint(x: 0.0001, y: 0.0001)))
         assert(Self.didMove(from: .zero, to: CGPoint(x: 0.001, y: 0)))
+        assert(!Self.movedBeyondPrecisionDwell(from: .zero, to: CGPoint(x: 2, y: 2)))
+        assert(Self.movedBeyondPrecisionDwell(from: .zero, to: CGPoint(x: 4, y: 0)))
         assert(Self.edgeReach(0.5) == 0.5)
         assert(Self.edgeReach(0.06) == 0)
         assert(abs(Self.edgeReach(0.18) - 0.18) < 0.0001)
@@ -175,26 +187,72 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         guard let fingerLocation = clampedToImage(sender.location(in: self)),
               let targetLocation = precisionTarget(for: fingerLocation),
               let point = normalized(targetLocation) else {
-            hideMagnifier()
+            cancelPrecisionInteraction()
             return
         }
         switch sender.state {
         case .began:
+            precisionGestureActive = true
+            precisionDragging = false
             showMagnifier(at: targetLocation, near: fingerLocation)
             sendPrecisionMove(point)
+            schedulePrecisionDragLock(at: targetLocation)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .changed:
             showMagnifier(at: targetLocation, near: fingerLocation)
-            sendPrecisionMove(point)
+            if precisionDragging {
+                sendPrecisionDrag(point)
+            } else {
+                sendPrecisionMove(point)
+                if Self.movedBeyondPrecisionDwell(from: precisionDwellAnchor, to: targetLocation) {
+                    schedulePrecisionDragLock(at: targetLocation)
+                }
+            }
         case .ended:
-            send(.leftMouseDown, point)
-            send(.leftMouseUp, point)
+            precisionDwellWorkItem?.cancel()
+            precisionDwellWorkItem = nil
+            precisionGestureActive = false
+            if precisionDragging {
+                sendPrecisionDrag(point)
+                send(.leftMouseUp, point)
+            } else {
+                send(.leftMouseDown, point)
+                send(.leftMouseUp, point)
+            }
+            precisionDragging = false
+            precisionDwellAnchor = nil
             hideMagnifier()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .cancelled, .failed:
-            hideMagnifier()
+            cancelPrecisionInteraction()
         default: break
         }
+    }
+
+    private func schedulePrecisionDragLock(at location: CGPoint) {
+        precisionDwellWorkItem?.cancel()
+        precisionDwellAnchor = location
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.precisionGestureActive, !self.precisionDragging,
+                  let point = self.lastPrecisionPoint else { return }
+            self.precisionDragging = true
+            self.magnifier.dragLocked = true
+            self.magnifier.setNeedsDisplay()
+            self.send(.leftMouseDown, point)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        precisionDwellWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.precisionDragDwell, execute: workItem)
+    }
+
+    private func cancelPrecisionInteraction() {
+        precisionDwellWorkItem?.cancel()
+        precisionDwellWorkItem = nil
+        if precisionDragging, let point = lastPrecisionPoint { send(.leftMouseUp, point) }
+        precisionGestureActive = false
+        precisionDragging = false
+        precisionDwellAnchor = nil
+        hideMagnifier()
     }
 
     private func sendPrecisionMove(_ point: CGPoint) {
@@ -203,11 +261,24 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         lastPrecisionPoint = point
     }
 
+    private func sendPrecisionDrag(_ point: CGPoint) {
+        guard Self.didMove(from: lastPrecisionPoint, to: point) else { return }
+        send(.leftMouseDragged, point)
+        lastPrecisionPoint = point
+    }
+
     private static func didMove(from previous: CGPoint?, to point: CGPoint) -> Bool {
         guard let previous else { return true }
         let dx = point.x - previous.x
         let dy = point.y - previous.y
         return dx * dx + dy * dy >= 0.000_000_25
+    }
+
+    private static func movedBeyondPrecisionDwell(from anchor: CGPoint?, to point: CGPoint) -> Bool {
+        guard let anchor else { return true }
+        let dx = point.x - anchor.x
+        let dy = point.y - anchor.y
+        return dx * dx + dy * dy >= precisionDwellMovement * precisionDwellMovement
     }
 
     private func precisionTarget(for fingerPoint: CGPoint) -> CGPoint? {
@@ -483,6 +554,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         magnifier.isHidden = true
         magnifier.snapshot = nil
         magnifier.guideDirection = .zero
+        magnifier.dragLocked = false
         magnifierGuideOutlineLayer.isHidden = true
         magnifierGuideOutlineLayer.path = nil
         magnifierGuideLayer.isHidden = true
@@ -504,6 +576,7 @@ private final class PrecisionMagnifier: UIView {
     var sourcePoint = CGPoint.zero
     var crosshairPoint = CGPoint(x: 88, y: 88)
     var guideDirection = CGVector.zero
+    var dragLocked = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -542,6 +615,18 @@ private final class PrecisionMagnifier: UIView {
             Self.guideColor.setStroke()
             guide.lineWidth = Self.guideWidth
             guide.stroke()
+        }
+
+        if dragLocked {
+            let lockRing = UIBezierPath(ovalIn: CGRect(
+                x: crosshairPoint.x - 18,
+                y: crosshairPoint.y - 18,
+                width: 36,
+                height: 36
+            ))
+            UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 1).setStroke()
+            lockRing.lineWidth = 2.5
+            lockRing.stroke()
         }
 
         let crosshair = UIBezierPath()
