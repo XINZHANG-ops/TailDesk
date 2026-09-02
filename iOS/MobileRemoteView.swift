@@ -37,11 +37,13 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             imageLayer.contents = displayedImage
             CATransaction.commit()
             updateImageLayer()
+            refreshMagnifierSnapshot()
         }
     }
 
     private let imageLayer = CALayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 144, height: 144))
+    private var lastMagnifierRefreshTime: TimeInterval = 0
     private var previousTapTime: TimeInterval = 0
     private var previousTapLocation = CGPoint.zero
 
@@ -134,11 +136,11 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         }
         switch sender.state {
         case .began:
-            showMagnifier(at: location, capture: true)
+            showMagnifier(at: location)
             send(.mouseMove, point)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .changed:
-            showMagnifier(at: location, capture: false)
+            showMagnifier(at: location)
             send(.mouseMove, point)
         case .ended:
             send(.leftMouseDown, point)
@@ -242,13 +244,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         CATransaction.commit()
     }
 
-    private func showMagnifier(at point: CGPoint, capture: Bool) {
-        if capture {
-            magnifier.isHidden = true
-            magnifier.snapshot = UIGraphicsImageRenderer(bounds: bounds).image { context in
-                layer.render(in: context.cgContext)
-            }
-        }
+    private func showMagnifier(at point: CGPoint) {
         magnifier.sourcePoint = point
         let half = magnifier.bounds.width / 2
         let gap = half + 18
@@ -257,17 +253,38 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             x: min(bounds.maxX - half - 8, max(bounds.minX + half + 8, point.x)),
             y: preferredY - half > bounds.minY ? preferredY : min(bounds.maxY - half - 8, point.y + gap)
         )
+        refreshMagnifierSnapshot(force: true)
         magnifier.isHidden = false
         magnifier.setNeedsDisplay()
+    }
+
+    private func refreshMagnifierSnapshot(force: Bool = false) {
+        guard force || !magnifier.isHidden else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard force || now - lastMagnifierRefreshTime >= 1.0 / 15 else { return }
+        let sourcePoint = magnifier.sourcePoint
+        let lensSize = magnifier.bounds.size
+        magnifier.isHidden = true
+        magnifier.snapshot = UIGraphicsImageRenderer(size: lensSize).image { context in
+            context.cgContext.translateBy(x: lensSize.width / 2, y: lensSize.height / 2)
+            context.cgContext.scaleBy(x: PrecisionMagnifier.magnification, y: PrecisionMagnifier.magnification)
+            context.cgContext.translateBy(x: -sourcePoint.x, y: -sourcePoint.y)
+            layer.render(in: context.cgContext)
+        }
+        magnifier.isHidden = false
+        magnifier.setNeedsDisplay()
+        lastMagnifierRefreshTime = now
     }
 
     private func hideMagnifier() {
         magnifier.isHidden = true
         magnifier.snapshot = nil
+        lastMagnifierRefreshTime = 0
     }
 }
 
 private final class PrecisionMagnifier: UIView {
+    static let magnification: CGFloat = 3
     var snapshot: UIImage?
     var sourcePoint = CGPoint.zero
 
@@ -284,14 +301,8 @@ private final class PrecisionMagnifier: UIView {
     required init?(coder: NSCoder) { nil }
 
     override func draw(_ rect: CGRect) {
-        guard let snapshot, let context = UIGraphicsGetCurrentContext() else { return }
-        let scale: CGFloat = 3
-        context.saveGState()
-        context.translateBy(x: bounds.midX, y: bounds.midY)
-        context.scaleBy(x: scale, y: scale)
-        context.translateBy(x: -sourcePoint.x, y: -sourcePoint.y)
-        snapshot.draw(at: .zero)
-        context.restoreGState()
+        guard let snapshot else { return }
+        snapshot.draw(in: bounds)
 
         let innerFrame = UIBezierPath(ovalIn: bounds.insetBy(dx: 6, dy: 6))
         UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.8).setStroke()
