@@ -118,6 +118,11 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         )
         assert(guide?.start == CGPoint(x: 19, y: 0))
         assert(guide?.end == CGPoint(x: 95.5, y: 0))
+        assert(PrecisionMagnifier.guideEndpoint(
+            from: .zero,
+            direction: CGVector(dx: 1, dy: 0),
+            length: 10
+        ) == CGPoint(x: 10, y: 0))
 #endif
     }
 
@@ -332,6 +337,10 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             in: bounds,
             lensSize: magnifier.bounds.size
         )
+        magnifier.guideDirection = CGVector(
+            dx: point.x - magnifier.center.x,
+            dy: point.y - magnifier.center.y
+        )
         updateMagnifierGuide(to: point)
         refreshMagnifierSnapshot(force: firstFrame)
         magnifier.isHidden = false
@@ -368,7 +377,6 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private func configureMagnifierGuide() {
-        let targetColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 0.98).cgColor
         for shapeLayer in [magnifierGuideOutlineLayer, magnifierGuideLayer, magnifierTargetLayer] {
             shapeLayer.contentsScale = traitCollection.displayScale
             shapeLayer.lineCap = .round
@@ -383,18 +391,18 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         magnifierGuideOutlineLayer.fillColor = UIColor.clear.cgColor
         magnifierGuideOutlineLayer.strokeColor = UIColor.white.cgColor
         magnifierGuideOutlineLayer.lineCap = .butt
-        magnifierGuideOutlineLayer.lineWidth = 2.5
-        magnifierGuideOutlineLayer.lineDashPattern = [4, 2]
+        magnifierGuideOutlineLayer.lineWidth = PrecisionMagnifier.guideOutlineWidth
+        magnifierGuideOutlineLayer.lineDashPattern = PrecisionMagnifier.guideDash.map { NSNumber(value: Double($0)) }
         magnifierGuideOutlineLayer.shadowOpacity = 0
         magnifierGuideLayer.fillColor = UIColor.clear.cgColor
-        magnifierGuideLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 1).cgColor
+        magnifierGuideLayer.strokeColor = PrecisionMagnifier.guideColor.cgColor
         magnifierGuideLayer.lineCap = .butt
-        magnifierGuideLayer.lineWidth = 1.25
-        magnifierGuideLayer.lineDashPattern = [4, 2]
+        magnifierGuideLayer.lineWidth = PrecisionMagnifier.guideWidth
+        magnifierGuideLayer.lineDashPattern = PrecisionMagnifier.guideDash.map { NSNumber(value: Double($0)) }
         magnifierGuideLayer.shadowOpacity = 0
-        magnifierTargetLayer.fillColor = targetColor
-        magnifierTargetLayer.strokeColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 0.9).cgColor
-        magnifierTargetLayer.lineWidth = 1.25
+        magnifierTargetLayer.fillColor = UIColor.black.cgColor
+        magnifierTargetLayer.strokeColor = nil
+        magnifierTargetLayer.shadowOpacity = 0
     }
 
     private func updateMagnifierGuide(to target: CGPoint) {
@@ -474,6 +482,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func hideMagnifier() {
         magnifier.isHidden = true
         magnifier.snapshot = nil
+        magnifier.guideDirection = .zero
         magnifierGuideOutlineLayer.isHidden = true
         magnifierGuideOutlineLayer.path = nil
         magnifierGuideLayer.isHidden = true
@@ -487,16 +496,21 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
 private final class PrecisionMagnifier: UIView {
     static let magnification: CGFloat = 3
+    static let guideWidth: CGFloat = 1.5
+    static let guideOutlineWidth: CGFloat = 2.75
+    static let guideDash: [CGFloat] = [4, 2]
+    static let guideColor = UIColor(red: 0.02, green: 0.10, blue: 0.23, alpha: 1)
     var snapshot: UIImage?
     var sourcePoint = CGPoint.zero
     var crosshairPoint = CGPoint(x: 88, y: 88)
+    var guideDirection = CGVector.zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .black
         layer.cornerRadius = frame.width / 2
-        layer.borderWidth = 4
+        layer.borderWidth = 1
         layer.borderColor = UIColor.white.cgColor
         clipsToBounds = true
     }
@@ -512,6 +526,24 @@ private final class PrecisionMagnifier: UIView {
         innerFrame.lineWidth = 2
         innerFrame.stroke()
 
+        if let guideEnd = Self.guideEndpoint(
+            from: crosshairPoint,
+            direction: guideDirection,
+            length: max(bounds.width, bounds.height)
+        ) {
+            let guide = UIBezierPath()
+            guide.move(to: crosshairPoint)
+            guide.addLine(to: guideEnd)
+            guide.setLineDash(Self.guideDash, count: Self.guideDash.count, phase: 0)
+            guide.lineCapStyle = .butt
+            UIColor.white.setStroke()
+            guide.lineWidth = Self.guideOutlineWidth
+            guide.stroke()
+            Self.guideColor.setStroke()
+            guide.lineWidth = Self.guideWidth
+            guide.stroke()
+        }
+
         let crosshair = UIBezierPath()
         crosshair.move(to: CGPoint(x: crosshairPoint.x - 12, y: crosshairPoint.y))
         crosshair.addLine(to: CGPoint(x: crosshairPoint.x + 12, y: crosshairPoint.y))
@@ -523,6 +555,19 @@ private final class PrecisionMagnifier: UIView {
         UIColor(red: 0.01, green: 0.07, blue: 0.17, alpha: 1).setStroke()
         crosshair.lineWidth = 2.5
         crosshair.stroke()
+    }
+
+    static func guideEndpoint(
+        from origin: CGPoint,
+        direction: CGVector,
+        length: CGFloat
+    ) -> CGPoint? {
+        let magnitude = hypot(direction.dx, direction.dy)
+        guard magnitude > 0 else { return nil }
+        return CGPoint(
+            x: origin.x + direction.dx / magnitude * length,
+            y: origin.y + direction.dy / magnitude * length
+        )
     }
 }
 
