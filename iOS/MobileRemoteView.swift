@@ -42,7 +42,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private let imageLayer = CALayer()
-    private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 144, height: 144))
+    private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 176, height: 176))
     private var lastMagnifierRefreshTime: TimeInterval = 0
     private var lastPrecisionPoint: CGPoint?
     private var previousTapTime: TimeInterval = 0
@@ -380,7 +380,7 @@ private final class PrecisionMagnifier: UIView {
     static let magnification: CGFloat = 3
     var snapshot: UIImage?
     var sourcePoint = CGPoint.zero
-    var crosshairPoint = CGPoint(x: 72, y: 72)
+    var crosshairPoint = CGPoint(x: 88, y: 88)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
