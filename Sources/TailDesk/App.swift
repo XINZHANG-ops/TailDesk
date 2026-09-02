@@ -123,6 +123,16 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
+                        if model.canRestoreReceivedClipboard {
+                            Button {
+                                model.restoreReceivedClipboard()
+                            } label: {
+                                Label("恢复最近接收项目", systemImage: "arrow.clockwise.circle")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
                         statusView
                     }
                 }
@@ -257,11 +267,15 @@ struct ContentView: View {
 
                     if model.clipboardTransferName != nil {
                         VStack {
+                            HStack {
+                                Spacer()
+                                clipboardProgressView
+                            }
+                            .padding(10)
                             Spacer()
-                            clipboardProgressView
-                                .padding(.bottom, 16)
                         }
                         .allowsHitTesting(false)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
             } else if model.isConnected {
@@ -347,6 +361,19 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+
+                if model.clipboardTransferName != nil {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            clipboardProgressView
+                        }
+                        .padding(10)
+                        Spacer()
+                    }
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .aspectRatio(previewAspectRatio, contentMode: .fit)
@@ -357,13 +384,9 @@ struct ContentView: View {
             }
             .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
 
-            if model.clipboardTransferName != nil {
-                clipboardProgressView
-            } else {
-                Text("预览不会向对方发送鼠标或键盘操作")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("预览不会向对方发送鼠标或键盘操作")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: 1100, maxHeight: .infinity)
         .frame(maxWidth: .infinity)
@@ -531,40 +554,56 @@ struct ContentView: View {
     }
 
     private var clipboardProgressView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: model.clipboardTransferProgress == 1 ? "checkmark.circle.fill" : "folder.badge.arrow.down")
-                    .foregroundStyle(model.clipboardTransferProgress == 1 ? .green : .blue)
-                Text(model.clipboardTransferProgress == 1
-                     ? "\(model.clipboardTransferName ?? "文件") 已可粘贴"
-                     : "正在接收 \(model.clipboardTransferName ?? "文件")")
-                    .font(.callout.weight(.medium))
-                Spacer()
+        HStack(spacing: 9) {
+            Image(systemName: model.clipboardTransferProgress == 1 ? "checkmark" : "folder.badge.arrow.down")
+                .font(.caption.bold())
+                .foregroundStyle(.cyan)
+                .frame(width: 24, height: 24)
+                .background(.cyan.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(model.clipboardTransferProgress == 1
+                         ? "\(model.clipboardTransferName ?? "文件") 已可粘贴"
+                         : "正在接收 \(model.clipboardTransferName ?? "文件")")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let progress = model.clipboardTransferProgress {
+                        Text("\(Int((progress * 100).rounded()))%")
+                            .font(.caption2.monospacedDigit().weight(.medium))
+                            .foregroundStyle(.cyan)
+                    }
+                }
+
                 if let progress = model.clipboardTransferProgress {
-                    Text("\(Int((progress * 100).rounded()))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    GeometryReader { geometry in
+                        Capsule()
+                            .fill(.white.opacity(0.14))
+                            .overlay(alignment: .leading) {
+                                Capsule()
+                                    .fill(.cyan)
+                                    .frame(width: geometry.size.width * CGFloat(progress))
+                            }
+                    }
+                    .frame(height: 3)
+                } else {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.cyan)
+                        .frame(height: 3)
                 }
-                if model.clipboardTransferProgress == 1 && !model.isControlling {
-                    Button("重新放入剪贴板") { model.restoreReceivedClipboard() }
-                        .buttonStyle(.bordered)
-                }
-            }
-            if let progress = model.clipboardTransferProgress {
-                ProgressView(value: progress)
-            } else {
-                ProgressView()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: 420)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(8)
+        .frame(width: 300)
+        .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.96), in: RoundedRectangle(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
-                .stroke(.primary.opacity(0.12), lineWidth: 1)
+                .stroke(.cyan.opacity(0.35), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
     }
 
     private func enterControl() {

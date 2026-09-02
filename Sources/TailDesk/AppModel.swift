@@ -32,6 +32,7 @@ final class AppModel: ObservableObject {
     @Published var phoneImportURL: URL?
     @Published private(set) var clipboardTransferName: String?
     @Published private(set) var clipboardTransferProgress: Double?
+    @Published private(set) var canRestoreReceivedClipboard = false
 
     let tailscaleAddress = localTailscaleIPv4() ?? "Not detected"
 
@@ -42,6 +43,7 @@ final class AppModel: ObservableObject {
     private var audioPlayer: RemoteAudioPlayer?
     private var hostClipboardSync: ClipboardSync?
     private var viewerClipboardSync: ClipboardSync?
+    private var clipboardProgressDismissTask: Task<Void, Never>?
 
     var isConnected: Bool { sessionState.isViewerConnected }
     var isConnecting: Bool { sessionState == .dialing }
@@ -289,6 +291,8 @@ final class AppModel: ObservableObject {
         }
         clipboardTransferName = nil
         clipboardTransferProgress = nil
+        canRestoreReceivedClipboard = false
+        clipboardProgressDismissTask?.cancel()
         if hadViewerSession { setStatus("Ready", isError: false) }
     }
 
@@ -324,7 +328,6 @@ final class AppModel: ObservableObject {
             setStatus("No received file is available to restore", isError: true)
             return
         }
-        clipboardTransferProgress = 1
     }
 
     func sendInput(_ event: RemoteInputEvent) {
@@ -428,6 +431,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 self?.setStatus(message, isError: isError)
                 if isError {
+                    self?.clipboardProgressDismissTask?.cancel()
                     self?.clipboardTransferName = nil
                     self?.clipboardTransferProgress = nil
                 }
@@ -438,8 +442,17 @@ final class AppModel: ObservableObject {
     private var clipboardProgressHandler: (String, Double?) -> Void {
         { [weak self] name, progress in
             Task { @MainActor in
+                self?.clipboardProgressDismissTask?.cancel()
                 self?.clipboardTransferName = name
                 self?.clipboardTransferProgress = progress
+                guard progress == 1 else { return }
+                self?.canRestoreReceivedClipboard = true
+                self?.clipboardProgressDismissTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.clipboardTransferName = nil
+                    self?.clipboardTransferProgress = nil
+                }
             }
         }
     }
