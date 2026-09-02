@@ -51,13 +51,14 @@ The iPhone target requires the full Xcode app and iOS 17 or later:
 The QR code contains only the online Macs' MagicDNS names. It contains no IP
 address, password, pairing key, or Tailscale credential. The iPhone supports
 single-finger pointer movement, tap-to-click, double-tap-to-double-click, tap-then-hold dragging,
-two-finger right-click and scrolling, remote text input, and clipboard text or
-one regular file up to 16 MB. The connection stays active for background audio;
+two-finger right-click and scrolling, remote text input, and clipboard text.
+The connection stays active for background audio;
 returning to the app requests a fresh video key frame so the picture resumes.
 
-While connected, clipboard text and one regular file up to 16 MB synchronize
-in either direction. Received files are stored under TailDesk's Application
-Support folder and placed on the local clipboard for pasting.
+Mac controllers synchronize clipboard text and one file or folder up to 16 MB
+in either direction. Received items are stored under TailDesk's Application
+Support folder and placed on the local Finder clipboard for pasting. iPhone
+clipboard synchronization remains text-only.
 
 The controlled Mac's stereo system audio plays on the controller. TailDesk
 excludes its own playback from capture to avoid feedback; microphones are not
@@ -76,7 +77,7 @@ rejected without interrupting the active controller, preventing control loops.
 - One controller at a time; multiple host displays can be switched during a session
 - Low-latency H.264 over TCP, up to 1920×1080 at 60 fps and about 8 Mbps
 - Low-latency 48 kHz stereo Float32 PCM audio (about 3.1 Mbps)
-- No microphone, folders, files over 16 MB, or adaptive bitrate yet
+- No microphone, symbolic links, transfers over 16 MB, or adaptive bitrate yet
 - Physical-keyboard shortcuts on iPhone are not mapped yet
 
 Run the protocol framing check with:

@@ -229,7 +229,7 @@ final class MobileAppModel: ObservableObject {
                 sharedPasteboardChangeCount = UIPasteboard.general.changeCount
                 canPaste = true
                 setStatus("远端文本已放入 iPhone 剪贴板", isError: false)
-            case .file:
+            case .file, .folder:
                 canPaste = true
                 break
             }
