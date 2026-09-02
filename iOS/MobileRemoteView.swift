@@ -42,6 +42,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private let imageLayer = CALayer()
+    private let magnifierGuideLayer = CAShapeLayer()
+    private let magnifierTargetLayer = CAShapeLayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 176, height: 176))
     private var lastMagnifierRefreshTime: TimeInterval = 0
     private var lastPrecisionPoint: CGPoint?
@@ -54,6 +56,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         layer.masksToBounds = true
         imageLayer.contentsGravity = .resize
         layer.addSublayer(imageLayer)
+        configureMagnifierGuide()
         isMultipleTouchEnabled = true
         magnifier.isHidden = true
         addSubview(magnifier)
@@ -106,6 +109,14 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             in: phoneBounds,
             lensSize: magnifier.bounds.size
         ).y < 422)
+        let guide = Self.magnifierGuide(
+            from: .zero,
+            to: CGPoint(x: 100, y: 0),
+            lensRadius: 20,
+            markerRadius: 10
+        )
+        assert(guide?.start == CGPoint(x: 25, y: 0))
+        assert(guide?.end == CGPoint(x: 90, y: 0))
 #endif
     }
 
@@ -113,6 +124,11 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        magnifierGuideLayer.frame = bounds
+        magnifierTargetLayer.frame = bounds
+        CATransaction.commit()
         updateImageLayer()
     }
 
@@ -314,6 +330,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             in: bounds,
             lensSize: magnifier.bounds.size
         )
+        updateMagnifierGuide(to: point)
         refreshMagnifierSnapshot(force: firstFrame)
         magnifier.isHidden = false
         magnifier.setNeedsDisplay()
@@ -348,6 +365,80 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         return clamp(CGPoint(x: finger.x - side, y: finger.y))
     }
 
+    private func configureMagnifierGuide() {
+        let guideColor = UIColor(red: 0.38, green: 0.88, blue: 1, alpha: 0.98).cgColor
+        for shapeLayer in [magnifierGuideLayer, magnifierTargetLayer] {
+            shapeLayer.strokeColor = guideColor
+            shapeLayer.lineCap = .round
+            shapeLayer.lineJoin = .round
+            shapeLayer.shadowColor = UIColor.black.cgColor
+            shapeLayer.shadowOpacity = 0.9
+            shapeLayer.shadowRadius = 2
+            shapeLayer.shadowOffset = .zero
+            shapeLayer.isHidden = true
+            layer.addSublayer(shapeLayer)
+        }
+        magnifierGuideLayer.fillColor = UIColor.clear.cgColor
+        magnifierGuideLayer.lineWidth = 3
+        magnifierGuideLayer.lineDashPattern = [7, 5]
+        magnifierTargetLayer.fillColor = UIColor.black.withAlphaComponent(0.6).cgColor
+        magnifierTargetLayer.lineWidth = 2.5
+    }
+
+    private func updateMagnifierGuide(to target: CGPoint) {
+        let markerRadius: CGFloat = 11
+        let markerPath = UIBezierPath(ovalIn: CGRect(
+            x: target.x - markerRadius,
+            y: target.y - markerRadius,
+            width: markerRadius * 2,
+            height: markerRadius * 2
+        ))
+        markerPath.move(to: CGPoint(x: target.x - 6, y: target.y))
+        markerPath.addLine(to: CGPoint(x: target.x + 6, y: target.y))
+        markerPath.move(to: CGPoint(x: target.x, y: target.y - 6))
+        markerPath.addLine(to: CGPoint(x: target.x, y: target.y + 6))
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        magnifierTargetLayer.path = markerPath.cgPath
+        magnifierTargetLayer.isHidden = false
+        if let guide = Self.magnifierGuide(
+            from: magnifier.center,
+            to: target,
+            lensRadius: magnifier.bounds.width / 2,
+            markerRadius: markerRadius
+        ) {
+            let path = UIBezierPath()
+            path.move(to: guide.start)
+            path.addLine(to: guide.end)
+            magnifierGuideLayer.path = path.cgPath
+            magnifierGuideLayer.isHidden = false
+        } else {
+            magnifierGuideLayer.path = nil
+            magnifierGuideLayer.isHidden = true
+        }
+        CATransaction.commit()
+    }
+
+    private static func magnifierGuide(
+        from lensCenter: CGPoint,
+        to target: CGPoint,
+        lensRadius: CGFloat,
+        markerRadius: CGFloat
+    ) -> (start: CGPoint, end: CGPoint)? {
+        let dx = target.x - lensCenter.x
+        let dy = target.y - lensCenter.y
+        let distance = hypot(dx, dy)
+        let startDistance = lensRadius + 5
+        guard distance > startDistance + markerRadius else { return nil }
+        let unitX = dx / distance
+        let unitY = dy / distance
+        return (
+            CGPoint(x: lensCenter.x + unitX * startDistance, y: lensCenter.y + unitY * startDistance),
+            CGPoint(x: target.x - unitX * markerRadius, y: target.y - unitY * markerRadius)
+        )
+    }
+
     private func refreshMagnifierSnapshot(force: Bool = false) {
         guard force || !magnifier.isHidden else { return }
         let now = ProcessInfo.processInfo.systemUptime
@@ -371,6 +462,10 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func hideMagnifier() {
         magnifier.isHidden = true
         magnifier.snapshot = nil
+        magnifierGuideLayer.isHidden = true
+        magnifierGuideLayer.path = nil
+        magnifierTargetLayer.isHidden = true
+        magnifierTargetLayer.path = nil
         lastMagnifierRefreshTime = 0
         lastPrecisionPoint = nil
     }
