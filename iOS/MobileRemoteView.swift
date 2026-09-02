@@ -96,6 +96,10 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(edge.capturePoint == CGPoint(x: 24, y: 24) && edge.crosshairPoint == .zero)
         assert(!Self.didMove(from: .zero, to: CGPoint(x: 0.0001, y: 0.0001)))
         assert(Self.didMove(from: .zero, to: CGPoint(x: 0.001, y: 0)))
+        assert(Self.edgeReach(0.5) == 0.5)
+        assert(Self.edgeReach(0.06) == 0)
+        assert(abs(Self.edgeReach(0.18) - 0.18) < 0.0001)
+        assert(abs(Self.edgeReach(0.94) - 1) < 0.0001)
 #endif
     }
 
@@ -139,17 +143,19 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func precisionClick(_ sender: UILongPressGestureRecognizer) {
-        guard let location = clampedToImage(sender.location(in: self)), let point = normalized(location) else {
+        guard let fingerLocation = clampedToImage(sender.location(in: self)),
+              let targetLocation = precisionTarget(for: fingerLocation),
+              let point = normalized(targetLocation) else {
             hideMagnifier()
             return
         }
         switch sender.state {
         case .began:
-            showMagnifier(at: location)
+            showMagnifier(at: targetLocation, near: fingerLocation)
             sendPrecisionMove(point)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .changed:
-            showMagnifier(at: location)
+            showMagnifier(at: targetLocation, near: fingerLocation)
             sendPrecisionMove(point)
         case .ended:
             send(.leftMouseDown, point)
@@ -173,6 +179,28 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         let dx = point.x - previous.x
         let dy = point.y - previous.y
         return dx * dx + dy * dy >= 0.000_000_25
+    }
+
+    private func precisionTarget(for fingerPoint: CGPoint) -> CGPoint? {
+        guard let rect = currentImageRect else { return nil }
+        return CGPoint(
+            x: rect.minX + Self.edgeReach((fingerPoint.x - rect.minX) / rect.width) * rect.width,
+            y: rect.minY + Self.edgeReach((fingerPoint.y - rect.minY) / rect.height) * rect.height
+        )
+    }
+
+    private static func edgeReach(_ value: CGFloat) -> CGFloat {
+        let value = min(1, max(0, value))
+        let directStart: CGFloat = 0.18
+        let fingerReach: CGFloat = 0.06
+        if value >= directStart && value <= 1 - directStart { return value }
+        if value > 0.5 { return 1 - edgeReach(1 - value) }
+        if value <= fingerReach { return 0 }
+        let width = directStart - fingerReach
+        let t = (value - fingerReach) / width
+        let t2 = t * t
+        let t3 = t2 * t
+        return directStart * (-2 * t3 + 3 * t2) + width * (t3 - t2)
     }
 
     @objc private func scroll(_ sender: UIPanGestureRecognizer) {
@@ -272,15 +300,15 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         CATransaction.commit()
     }
 
-    private func showMagnifier(at point: CGPoint) {
+    private func showMagnifier(at point: CGPoint, near fingerPoint: CGPoint) {
         let firstFrame = magnifier.isHidden
         magnifier.sourcePoint = point
         let half = magnifier.bounds.width / 2
         let gap = half + 18
-        let preferredY = point.y - gap
+        let preferredY = fingerPoint.y - gap
         magnifier.center = CGPoint(
-            x: min(bounds.maxX - half - 8, max(bounds.minX + half + 8, point.x)),
-            y: preferredY - half > bounds.minY ? preferredY : min(bounds.maxY - half - 8, point.y + gap)
+            x: min(bounds.maxX - half - 8, max(bounds.minX + half + 8, fingerPoint.x)),
+            y: preferredY - half > bounds.minY ? preferredY : min(bounds.maxY - half - 8, fingerPoint.y + gap)
         )
         refreshMagnifierSnapshot(force: firstFrame)
         magnifier.isHidden = false
