@@ -87,6 +87,12 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(Self.unrotated(CGPoint(x: 1, y: 0), quarterTurns: 3) == .zero)
         assert(Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.3, location: CGPoint(x: 20, y: 20)))
         assert(!Self.isDoubleTap(previousTime: 1, previousLocation: .zero, time: 1.5, location: .zero))
+        let edge = Self.magnifierGeometry(
+            sourcePoint: .zero,
+            imageRect: CGRect(x: 0, y: 0, width: 100, height: 100),
+            lensSize: CGSize(width: 144, height: 144)
+        )
+        assert(edge.capturePoint == CGPoint(x: 24, y: 24) && edge.crosshairPoint == .zero)
 #endif
     }
 
@@ -181,7 +187,13 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private func normalized(_ point: CGPoint) -> CGPoint? {
-        guard let content = currentImageRect, content.contains(point) else { return nil }
+        guard let content = currentImageRect,
+              content.width > 0,
+              content.height > 0,
+              point.x >= content.minX,
+              point.x <= content.maxX,
+              point.y >= content.minY,
+              point.y <= content.maxY else { return nil }
         return Self.unrotated(CGPoint(
             x: (point.x - content.minX) / content.width,
             y: (point.y - content.minY) / content.height
@@ -261,19 +273,45 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func refreshMagnifierSnapshot(force: Bool = false) {
         guard force || !magnifier.isHidden else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        guard force || now - lastMagnifierRefreshTime >= 1.0 / 15 else { return }
-        let sourcePoint = magnifier.sourcePoint
+        guard force || now - lastMagnifierRefreshTime >= 1.0 / 15,
+              let imageRect = currentImageRect else { return }
         let lensSize = magnifier.bounds.size
+        let geometry = Self.magnifierGeometry(
+            sourcePoint: magnifier.sourcePoint,
+            imageRect: imageRect,
+            lensSize: lensSize
+        )
+        magnifier.crosshairPoint = geometry.crosshairPoint
         magnifier.isHidden = true
         magnifier.snapshot = UIGraphicsImageRenderer(size: lensSize).image { context in
             context.cgContext.translateBy(x: lensSize.width / 2, y: lensSize.height / 2)
             context.cgContext.scaleBy(x: PrecisionMagnifier.magnification, y: PrecisionMagnifier.magnification)
-            context.cgContext.translateBy(x: -sourcePoint.x, y: -sourcePoint.y)
+            context.cgContext.translateBy(x: -geometry.capturePoint.x, y: -geometry.capturePoint.y)
             layer.render(in: context.cgContext)
         }
         magnifier.isHidden = false
         magnifier.setNeedsDisplay()
         lastMagnifierRefreshTime = now
+    }
+
+    private static func magnifierGeometry(
+        sourcePoint: CGPoint,
+        imageRect: CGRect,
+        lensSize: CGSize
+    ) -> (capturePoint: CGPoint, crosshairPoint: CGPoint) {
+        let radiusX = min(lensSize.width / (2 * PrecisionMagnifier.magnification), imageRect.width / 2)
+        let radiusY = min(lensSize.height / (2 * PrecisionMagnifier.magnification), imageRect.height / 2)
+        let capturePoint = CGPoint(
+            x: min(imageRect.maxX - radiusX, max(imageRect.minX + radiusX, sourcePoint.x)),
+            y: min(imageRect.maxY - radiusY, max(imageRect.minY + radiusY, sourcePoint.y))
+        )
+        return (
+            capturePoint,
+            CGPoint(
+                x: lensSize.width / 2 + (sourcePoint.x - capturePoint.x) * PrecisionMagnifier.magnification,
+                y: lensSize.height / 2 + (sourcePoint.y - capturePoint.y) * PrecisionMagnifier.magnification
+            )
+        )
     }
 
     private func hideMagnifier() {
@@ -287,6 +325,7 @@ private final class PrecisionMagnifier: UIView {
     static let magnification: CGFloat = 3
     var snapshot: UIImage?
     var sourcePoint = CGPoint.zero
+    var crosshairPoint = CGPoint(x: 72, y: 72)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -310,10 +349,10 @@ private final class PrecisionMagnifier: UIView {
         innerFrame.stroke()
 
         let crosshair = UIBezierPath()
-        crosshair.move(to: CGPoint(x: bounds.midX - 12, y: bounds.midY))
-        crosshair.addLine(to: CGPoint(x: bounds.midX + 12, y: bounds.midY))
-        crosshair.move(to: CGPoint(x: bounds.midX, y: bounds.midY - 12))
-        crosshair.addLine(to: CGPoint(x: bounds.midX, y: bounds.midY + 12))
+        crosshair.move(to: CGPoint(x: crosshairPoint.x - 12, y: crosshairPoint.y))
+        crosshair.addLine(to: CGPoint(x: crosshairPoint.x + 12, y: crosshairPoint.y))
+        crosshair.move(to: CGPoint(x: crosshairPoint.x, y: crosshairPoint.y - 12))
+        crosshair.addLine(to: CGPoint(x: crosshairPoint.x, y: crosshairPoint.y + 12))
         UIColor.white.withAlphaComponent(0.9).setStroke()
         crosshair.lineWidth = 5
         crosshair.stroke()
