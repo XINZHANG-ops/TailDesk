@@ -50,7 +50,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private let magnifierGuideLayer = CAShapeLayer()
     private let magnifierTargetLayer = CAShapeLayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 176, height: 176))
-    private static let precisionDragDwell: TimeInterval = 0.4
+    private static let precisionDragDwell: TimeInterval = 0.8
     private static let precisionDwellMovement: CGFloat = 3
     private var lastMagnifierRefreshTime: TimeInterval = 0
     private var lastPrecisionPoint: CGPoint?
