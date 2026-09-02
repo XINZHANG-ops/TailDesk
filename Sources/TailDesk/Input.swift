@@ -114,7 +114,13 @@ final class RemoteCanvasView: NSView {
 
     private func sendMouse(_ kind: RemoteInputEvent.Kind, _ event: NSEvent) {
         guard let point = normalizedPoint(for: event) else { return }
-        sendInput(RemoteInputEvent(kind: kind, x: point.x, y: point.y, flags: modifierFlags(event)))
+        sendInput(RemoteInputEvent(
+            kind: kind,
+            x: point.x,
+            y: point.y,
+            flags: modifierFlags(event),
+            clickCount: mouseClickCount(kind, event.clickCount)
+        ))
     }
 
     private func normalizedPoint(for event: NSEvent) -> CGPoint? {
@@ -238,6 +244,15 @@ private func scrollUnit(for flags: UInt8) -> CGScrollEventUnit {
     flags & RemoteModifier.preciseScroll == 0 ? .line : .pixel
 }
 
+private func mouseClickCount(_ kind: RemoteInputEvent.Kind, _ count: Int) -> Int? {
+    switch kind {
+    case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp:
+        return count
+    default:
+        return nil
+    }
+}
+
 enum InputSelfCheck {
     static func run() {
         precondition(scrollUnit(for: 0) == .line)
@@ -247,5 +262,7 @@ enum InputSelfCheck {
         precondition(shouldRevealControls(at: CGPoint(x: 5, y: 50), contentRect: content, in: bounds))
         precondition(shouldRevealControls(at: CGPoint(x: 50, y: 98), contentRect: content, in: bounds))
         precondition(!shouldRevealControls(at: CGPoint(x: 50, y: 50), contentRect: content, in: bounds))
+        precondition(mouseClickCount(.leftMouseDown, 2) == 2)
+        precondition(mouseClickCount(.mouseMove, 2) == nil)
     }
 }

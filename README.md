@@ -60,8 +60,9 @@ in either direction. Files stream in 1 MB chunks, folders have no artificial
 item-count limit, and the receiver keeps a disk-space safety reserve. Starting a
 new file transfer invalidates the previous Finder clipboard immediately; the new
 item becomes pasteable atomically when its transfer finishes. Received items are
-stored under TailDesk's Application Support folder. iPhone clipboard
-synchronization remains text-only.
+stored under TailDesk's Application Support folder without changing their visible
+file names. Transfers already in progress continue after returning to preview.
+iPhone clipboard synchronization remains text-only.
 
 The controlled Mac's stereo system audio plays on the controller. TailDesk
 excludes its own playback from capture to avoid feedback; microphones are not

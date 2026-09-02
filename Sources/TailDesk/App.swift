@@ -348,9 +348,13 @@ struct ContentView: View {
             }
             .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
 
-            Text("预览不会向对方发送鼠标或键盘操作")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if model.status.localizedCaseInsensitiveContains("clipboard item") {
+                statusView
+            } else {
+                Text("预览不会向对方发送鼠标或键盘操作")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: 1100, maxHeight: .infinity)
         .frame(maxWidth: .infinity)

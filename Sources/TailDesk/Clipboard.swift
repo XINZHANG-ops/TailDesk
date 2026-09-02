@@ -226,7 +226,7 @@ final class ClipboardSync {
     private nonisolated(unsafe) var receiveEnabled = false
 
     func start() {
-        stop()
+        pause()
         receiveLock.lock()
         receiveEnabled = true
         receiveLock.unlock()
@@ -236,9 +236,13 @@ final class ClipboardSync {
         }
     }
 
-    func stop() {
+    func pause() {
         timer?.invalidate()
         timer = nil
+    }
+
+    func stop() {
+        pause()
         receiveLock.lock()
         receiveEnabled = false
         receiveLock.unlock()
@@ -719,8 +723,17 @@ private final class ClipboardTransferReceiver: @unchecked Sendable {
         for (url, mode) in incoming.deferredDirectoryPermissions.reversed() {
             try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
         }
-        let destination = try ClipboardStorage.destination(for: incoming.metadata.name, in: directory)
-        try FileManager.default.moveItem(at: incoming.stagingURL, to: destination)
+        let destination = try ClipboardStorage.streamingDestination(
+            for: incoming.metadata.name,
+            id: id,
+            in: directory
+        )
+        do {
+            try FileManager.default.moveItem(at: incoming.stagingURL, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: destination.deletingLastPathComponent())
+            throw error
+        }
         self.incoming = nil
         return destination
     }
@@ -776,6 +789,16 @@ private enum ClipboardStorage {
             suffix += 1
         }
         return destination
+    }
+
+    static func streamingDestination(for name: String, id: UUID, in directory: URL) throws -> URL {
+        guard ClipboardPath.isSafeName(name) else { throw ClipboardError.invalidFileName }
+        let container = directory.appendingPathComponent(".received-\(id.uuidString)", isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: container.path) else {
+            throw ClipboardError.invalidTransfer
+        }
+        try FileManager.default.createDirectory(at: container, withIntermediateDirectories: false)
+        return container.appendingPathComponent(name)
     }
 
     static func removeStaleTransfers(in directory: URL) {
@@ -880,6 +903,8 @@ enum ClipboardSelfCheck {
         })
         precondition(completed.wait(timeout: .now() + 5) == .success && !receiveError)
         let restored = receivedURL!
+        precondition(restored.lastPathComponent == "source")
+        precondition(restored.deletingLastPathComponent().lastPathComponent.hasPrefix(".received-"))
         precondition(try! Data(contentsOf: restored.appendingPathComponent("nested/file.txt")) == sourceData)
         var isDirectory: ObjCBool = false
         precondition(fileManager.fileExists(atPath: restored.appendingPathComponent("empty").path, isDirectory: &isDirectory) && isDirectory.boolValue)
