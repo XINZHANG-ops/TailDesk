@@ -280,6 +280,7 @@ private struct RemoteSessionView: View {
                 GeometryReader { geometry in
                     compactControls(in: geometry)
                 }
+                .ignoresSafeArea()
             } else {
                 VStack {
                     controlBar
