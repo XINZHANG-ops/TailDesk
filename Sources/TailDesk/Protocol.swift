@@ -102,11 +102,127 @@ struct RemoteDisplay: Codable, Equatable, Identifiable {
     let width: Int
     let height: Int
     let isMain: Bool
+    let originX: Int?
+    let originY: Int?
+
+    init(
+        id: UInt32,
+        name: String,
+        width: Int,
+        height: Int,
+        isMain: Bool,
+        originX: Int? = nil,
+        originY: Int? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.width = width
+        self.height = height
+        self.isMain = isMain
+        self.originX = originX
+        self.originY = originY
+    }
 }
 
 struct RemoteDisplayList: Codable, Equatable {
     let displays: [RemoteDisplay]
     let selectedDisplayID: UInt32
+}
+
+enum RemoteDisplayEdge: Equatable {
+    case left, right, top, bottom
+
+    var opposite: RemoteDisplayEdge {
+        switch self {
+        case .left: .right
+        case .right: .left
+        case .top: .bottom
+        case .bottom: .top
+        }
+    }
+}
+
+struct RemoteDisplayTransition: Equatable {
+    let displayID: UInt32
+    let x: Double
+    let y: Double
+}
+
+func remoteDisplayTransition(
+    from currentID: UInt32,
+    through edge: RemoteDisplayEdge,
+    at position: Double,
+    displays: [RemoteDisplay]
+) -> RemoteDisplayTransition? {
+    guard let current = displays.first(where: { $0.id == currentID }) else { return nil }
+    let position = min(1, max(0, position))
+    guard let currentX = current.originX, let currentY = current.originY else {
+        guard let index = displays.firstIndex(where: { $0.id == currentID }) else { return nil }
+        let targetIndex = edge == .right ? index + 1 : edge == .left ? index - 1 : -1
+        guard displays.indices.contains(targetIndex) else { return nil }
+        return RemoteDisplayTransition(
+            displayID: displays[targetIndex].id,
+            x: edge == .right ? 0.02 : 0.98,
+            y: position
+        )
+    }
+
+    let currentMinX = Double(currentX)
+    let currentMinY = Double(currentY)
+    let currentMaxX = currentMinX + Double(current.width)
+    let currentMaxY = currentMinY + Double(current.height)
+    let globalPosition = (edge == .left || edge == .right)
+        ? currentMinY + position * Double(current.height)
+        : currentMinX + position * Double(current.width)
+
+    let candidates = displays.compactMap { display -> (display: RemoteDisplay, gap: Double, miss: Double)? in
+        guard display.id != currentID,
+              let x = display.originX,
+              let y = display.originY else { return nil }
+        let minX = Double(x)
+        let minY = Double(y)
+        let maxX = minX + Double(display.width)
+        let maxY = minY + Double(display.height)
+        let gap: Double
+        let orthogonalRange: ClosedRange<Double>
+        switch edge {
+        case .left:
+            guard maxX <= currentMinX + 1 else { return nil }
+            gap = currentMinX - maxX
+            orthogonalRange = minY...maxY
+        case .right:
+            guard minX >= currentMaxX - 1 else { return nil }
+            gap = minX - currentMaxX
+            orthogonalRange = minY...maxY
+        case .top:
+            guard maxY <= currentMinY + 1 else { return nil }
+            gap = currentMinY - maxY
+            orthogonalRange = minX...maxX
+        case .bottom:
+            guard minY >= currentMaxY - 1 else { return nil }
+            gap = minY - currentMaxY
+            orthogonalRange = minX...maxX
+        }
+        let miss = globalPosition < orthogonalRange.lowerBound
+            ? orthogonalRange.lowerBound - globalPosition
+            : globalPosition > orthogonalRange.upperBound ? globalPosition - orthogonalRange.upperBound : 0
+        return (display, gap, miss)
+    }
+    guard let target = candidates.min(by: {
+        ($0.miss == 0) != ($1.miss == 0) ? $0.miss == 0 : $0.gap + $0.miss < $1.gap + $1.miss
+    }), let targetX = target.display.originX, let targetY = target.display.originY else { return nil }
+
+    let x: Double
+    let y: Double
+    switch edge {
+    case .left, .right:
+        x = edge == .right ? 0.02 : 0.98
+        y = min(1, max(0, (globalPosition - Double(targetY)) / Double(target.display.height)))
+    case .top, .bottom:
+        x = min(1, max(0, (globalPosition - Double(targetX)) / Double(target.display.width)))
+        y = edge == .bottom ? 0.02 : 0.98
+    }
+    return RemoteDisplayTransition(displayID: target.display.id, x: x, y: y)
 }
 
 enum RemoteModifier {
@@ -193,10 +309,22 @@ enum ProtocolSelfCheck {
         precondition(try! JSONDecoder().decode(RemoteInputEvent.self, from: JSONEncoder().encode(displayListRequest)).kind == .requestDisplayList)
         precondition(WireMessage(rawValue: 7) == .audioFrame)
         let displays = RemoteDisplayList(
-            displays: [RemoteDisplay(id: 1, name: "主屏幕", width: 1920, height: 1080, isMain: true)],
+            displays: [RemoteDisplay(id: 1, name: "主屏幕", width: 1920, height: 1080, isMain: true, originX: 0, originY: 0)],
             selectedDisplayID: 1
         )
         precondition(try! JSONDecoder().decode(RemoteDisplayList.self, from: JSONEncoder().encode(displays)) == displays)
+        let legacyDisplay = try! JSONDecoder().decode(
+            RemoteDisplay.self,
+            from: Data(#"{"id":1,"name":"主屏幕","width":1920,"height":1080,"isMain":true}"#.utf8)
+        )
+        precondition(legacyDisplay.originX == nil && legacyDisplay.originY == nil)
+        let sideBySide = [
+            RemoteDisplay(id: 1, name: "左", width: 1920, height: 1080, isMain: true, originX: 0, originY: 0),
+            RemoteDisplay(id: 2, name: "右", width: 2560, height: 1440, isMain: false, originX: 1920, originY: -180),
+        ]
+        let transition = remoteDisplayTransition(from: 1, through: .right, at: 0.5, displays: sideBySide)
+        precondition(transition?.displayID == 2 && transition?.x == 0.02 && transition?.y == 0.5)
+        precondition(remoteDisplayTransition(from: 1, through: .left, at: 0.5, displays: sideBySide) == nil)
         precondition(WireMessage(rawValue: 8) == .displayList)
     }
 }

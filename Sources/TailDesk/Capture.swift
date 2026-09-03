@@ -69,12 +69,15 @@ final class ScreenCaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         displayID = display.displayID
         displayList = RemoteDisplayList(
             displays: displays.enumerated().map { index, item in
-                RemoteDisplay(
+                let bounds = CGDisplayBounds(item.displayID)
+                return RemoteDisplay(
                     id: item.displayID,
                     name: item.displayID == mainDisplayID ? "主屏幕" : "显示器 \(index + 1)",
-                    width: item.width,
-                    height: item.height,
-                    isMain: item.displayID == mainDisplayID
+                    width: Int(bounds.width),
+                    height: Int(bounds.height),
+                    isMain: item.displayID == mainDisplayID,
+                    originX: Int(bounds.minX),
+                    originY: Int(bounds.minY)
                 )
             },
             selectedDisplayID: display.displayID

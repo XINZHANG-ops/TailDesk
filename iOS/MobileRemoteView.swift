@@ -22,11 +22,13 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
     let rotationQuarterTurns: Int
     let sendInput: (RemoteInputEvent) -> Void
     let onCopySuggested: () -> Void
+    let onCrossDisplayEdge: (RemoteDisplayEdge, Double) -> RemoteDisplayTransition?
 
     func makeUIView(context: Context) -> MobileRemoteCanvas {
         let view = MobileRemoteCanvas()
         view.sendInput = sendInput
         view.onCopySuggested = onCopySuggested
+        view.onCrossDisplayEdge = onCrossDisplayEdge
         return view
     }
 
@@ -36,12 +38,14 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
         view.rotationQuarterTurns = rotationQuarterTurns
         view.sendInput = sendInput
         view.onCopySuggested = onCopySuggested
+        view.onCrossDisplayEdge = onCrossDisplayEdge
     }
 }
 
 final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
     var onCopySuggested: () -> Void = {}
+    var onCrossDisplayEdge: (RemoteDisplayEdge, Double) -> RemoteDisplayTransition? = { _, _ in nil }
     var isInteractive = false {
         didSet {
             if oldValue && !isInteractive { cancelPrecisionInteraction() }
@@ -70,6 +74,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private let magnifierTargetLayer = CAShapeLayer()
     private let magnifier = PrecisionMagnifier(frame: CGRect(x: 0, y: 0, width: 176, height: 176))
     private static let precisionDragDwell: TimeInterval = 0.8
+    private static let displayEdgeDwell: TimeInterval = 0.4
     private static let precisionDwellMovement: CGFloat = 3
     private var lastMagnifierRefreshTime: TimeInterval = 0
     private var lastPrecisionPoint: CGPoint?
@@ -77,6 +82,14 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private var precisionDwellWorkItem: DispatchWorkItem?
     private var precisionGestureActive = false
     private var precisionDragging = false
+    private var precisionDragPoint: CGPoint?
+    private var lastPrecisionRawPoint: CGPoint?
+    private var lastPrecisionFingerLocation: CGPoint?
+    private var precisionDragScale = CGPoint(x: 1, y: 1)
+    private var pendingDisplayEdge: RemoteDisplayEdge?
+    private var blockedDisplayEdge: RemoteDisplayEdge?
+    private var reentryDisplayEdge: RemoteDisplayEdge?
+    private var displayEdgeWorkItem: DispatchWorkItem?
     private var previousTapTime: TimeInterval = 0
     private var previousTapLocation = CGPoint.zero
 
@@ -135,6 +148,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(Self.edgeReach(0.06) == 0)
         assert(abs(Self.edgeReach(0.18) - 0.18) < 0.0001)
         assert(abs(Self.edgeReach(0.94) - 1) < 0.0001)
+        assert(Self.outgoingEdge(for: CGPoint(x: 1, y: 0.5), delta: CGPoint(x: 0.01, y: 0)) == .right)
+        assert(Self.movesTowardEdge(CGPoint(x: -0.01, y: 0), .left))
         assert(Self.scrollDelta(for: CGPoint(x: 2, y: 3), quarterTurns: 0) == CGPoint(x: -8, y: -12))
         assert(Self.scrollDelta(for: CGPoint(x: 2, y: 3), quarterTurns: 3) == CGPoint(x: -12, y: 8))
         let phoneBounds = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -213,7 +228,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
 
     @objc private func precisionClick(_ sender: UILongPressGestureRecognizer) {
         if sender.state == .ended {
-            guard let point = lastPrecisionPoint else {
+            guard let point = precisionDragPoint ?? lastPrecisionPoint else {
                 cancelPrecisionInteraction()
                 return
             }
@@ -228,6 +243,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             }
             precisionDragging = false
             precisionDwellAnchor = nil
+            resetDisplayEdgeDwell()
             hideMagnifier()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onCopySuggested()
@@ -247,15 +263,20 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         case .began:
             precisionGestureActive = true
             precisionDragging = false
+            lastPrecisionFingerLocation = fingerLocation
             showMagnifier(at: targetLocation, near: fingerLocation)
             sendPrecisionMove(point)
             schedulePrecisionDragLock(at: targetLocation)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .changed:
-            showMagnifier(at: targetLocation, near: fingerLocation)
+            lastPrecisionFingerLocation = fingerLocation
             if precisionDragging {
-                sendPrecisionDrag(point)
+                let update = updatePrecisionDrag(rawPoint: point)
+                showMagnifier(at: localPoint(for: update.point) ?? targetLocation, near: fingerLocation)
+                sendPrecisionDrag(update.point)
+                updateDisplayEdgeDwell(for: update.point, delta: update.delta)
             } else {
+                showMagnifier(at: targetLocation, near: fingerLocation)
                 sendPrecisionMove(point)
                 if Self.movedBeyondPrecisionDwell(from: precisionDwellAnchor, to: targetLocation) {
                     schedulePrecisionDragLock(at: targetLocation)
@@ -272,6 +293,9 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
             guard let self, self.precisionGestureActive, !self.precisionDragging,
                   let point = self.lastPrecisionPoint else { return }
             self.precisionDragging = true
+            self.precisionDragPoint = point
+            self.lastPrecisionRawPoint = point
+            self.precisionDragScale = CGPoint(x: 1, y: 1)
             self.magnifier.dragLocked = true
             self.magnifier.setNeedsDisplay()
             self.send(.leftMouseDown, point)
@@ -284,10 +308,12 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func cancelPrecisionInteraction() {
         precisionDwellWorkItem?.cancel()
         precisionDwellWorkItem = nil
-        if precisionDragging, let point = lastPrecisionPoint { send(.leftMouseUp, point) }
+        displayEdgeWorkItem?.cancel()
+        if precisionDragging, let point = precisionDragPoint ?? lastPrecisionPoint { send(.leftMouseUp, point) }
         precisionGestureActive = false
         precisionDragging = false
         precisionDwellAnchor = nil
+        resetDisplayEdgeDwell()
         hideMagnifier()
     }
 
@@ -301,6 +327,119 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         guard Self.didMove(from: lastPrecisionPoint, to: point) else { return }
         send(.leftMouseDragged, point)
         lastPrecisionPoint = point
+    }
+
+    private func updatePrecisionDrag(rawPoint: CGPoint) -> (point: CGPoint, delta: CGPoint) {
+        guard let previousRawPoint = lastPrecisionRawPoint else {
+            lastPrecisionRawPoint = rawPoint
+            precisionDragPoint = rawPoint
+            return (rawPoint, .zero)
+        }
+        var delta = CGPoint(
+            x: (rawPoint.x - previousRawPoint.x) * precisionDragScale.x,
+            y: (rawPoint.y - previousRawPoint.y) * precisionDragScale.y
+        )
+        let previousDragPoint = precisionDragPoint ?? previousRawPoint
+        if let reentryDisplayEdge,
+           Self.isAtEdge(previousDragPoint, reentryDisplayEdge, threshold: 0.05),
+           Self.movesTowardEdge(delta, reentryDisplayEdge) {
+            if reentryDisplayEdge == .left || reentryDisplayEdge == .right {
+                precisionDragScale.x *= -1
+                delta.x *= -1
+            } else {
+                precisionDragScale.y *= -1
+                delta.y *= -1
+            }
+        }
+        let point = CGPoint(
+            x: min(1, max(0, previousDragPoint.x + delta.x)),
+            y: min(1, max(0, previousDragPoint.y + delta.y))
+        )
+        if let reentryDisplayEdge, !Self.isAtEdge(point, reentryDisplayEdge, threshold: 0.05) {
+            self.reentryDisplayEdge = nil
+        }
+        lastPrecisionRawPoint = rawPoint
+        precisionDragPoint = point
+        return (point, delta)
+    }
+
+    private func updateDisplayEdgeDwell(for point: CGPoint, delta: CGPoint) {
+        if let blockedDisplayEdge, !Self.isAtEdge(point, blockedDisplayEdge, threshold: 0.05) {
+            self.blockedDisplayEdge = nil
+        }
+        guard let edge = Self.outgoingEdge(for: point, delta: delta), edge != blockedDisplayEdge else {
+            displayEdgeWorkItem?.cancel()
+            displayEdgeWorkItem = nil
+            pendingDisplayEdge = nil
+            return
+        }
+        guard pendingDisplayEdge != edge else { return }
+        displayEdgeWorkItem?.cancel()
+        pendingDisplayEdge = edge
+        let position = edge == .left || edge == .right ? point.y : point.x
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.precisionDragging, self.pendingDisplayEdge == edge else { return }
+            self.pendingDisplayEdge = nil
+            self.displayEdgeWorkItem = nil
+            guard let transition = self.onCrossDisplayEdge(edge, position) else {
+                self.blockedDisplayEdge = edge
+                return
+            }
+            let newPoint = CGPoint(x: transition.x, y: transition.y)
+            self.precisionDragPoint = newPoint
+            self.lastPrecisionPoint = newPoint
+            self.blockedDisplayEdge = nil
+            self.reentryDisplayEdge = edge.opposite
+            self.send(.leftMouseDragged, newPoint)
+            if let finger = self.lastPrecisionFingerLocation,
+               let target = self.localPoint(for: newPoint) {
+                self.showMagnifier(at: target, near: finger)
+            }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        displayEdgeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.displayEdgeDwell, execute: workItem)
+    }
+
+    private func resetDisplayEdgeDwell() {
+        displayEdgeWorkItem?.cancel()
+        displayEdgeWorkItem = nil
+        pendingDisplayEdge = nil
+        blockedDisplayEdge = nil
+        reentryDisplayEdge = nil
+        precisionDragPoint = nil
+        lastPrecisionRawPoint = nil
+        lastPrecisionFingerLocation = nil
+        precisionDragScale = CGPoint(x: 1, y: 1)
+    }
+
+    private static func outgoingEdge(for point: CGPoint, delta: CGPoint) -> RemoteDisplayEdge? {
+        let horizontal: RemoteDisplayEdge? = delta.x < 0 && point.x <= 0.005
+            ? .left : delta.x > 0 && point.x >= 0.995 ? .right : nil
+        let vertical: RemoteDisplayEdge? = delta.y < 0 && point.y <= 0.005
+            ? .top : delta.y > 0 && point.y >= 0.995 ? .bottom : nil
+        if horizontal != nil && vertical != nil {
+            return abs(delta.x) >= abs(delta.y) ? horizontal : vertical
+        }
+        return horizontal ?? vertical
+    }
+
+    private static func isAtEdge(_ point: CGPoint, _ edge: RemoteDisplayEdge, threshold: CGFloat) -> Bool {
+        switch edge {
+        case .left: point.x <= threshold
+        case .right: point.x >= 1 - threshold
+        case .top: point.y <= threshold
+        case .bottom: point.y >= 1 - threshold
+        }
+    }
+
+    private static func movesTowardEdge(_ delta: CGPoint, _ edge: RemoteDisplayEdge) -> Bool {
+        switch edge {
+        case .left: delta.x < 0
+        case .right: delta.x > 0
+        case .top: delta.y < 0
+        case .bottom: delta.y > 0
+        }
     }
 
     private static func didMove(from previous: CGPoint?, to point: CGPoint) -> Bool {
@@ -419,6 +558,20 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         case 3: CGPoint(x: point.y, y: 1 - point.x)
         default: point
         }
+    }
+
+    private func localPoint(for normalizedPoint: CGPoint) -> CGPoint? {
+        guard let rect = currentImageRect else { return nil }
+        let rotated = switch rotationQuarterTurns % 4 {
+        case 1: CGPoint(x: normalizedPoint.y, y: 1 - normalizedPoint.x)
+        case 2: CGPoint(x: 1 - normalizedPoint.x, y: 1 - normalizedPoint.y)
+        case 3: CGPoint(x: 1 - normalizedPoint.y, y: normalizedPoint.x)
+        default: normalizedPoint
+        }
+        return CGPoint(
+            x: rect.minX + rotated.x * rect.width,
+            y: rect.minY + rotated.y * rect.height
+        )
     }
 
     private func updateImageLayer() {

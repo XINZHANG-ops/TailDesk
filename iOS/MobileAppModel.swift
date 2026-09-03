@@ -163,13 +163,25 @@ final class MobileAppModel: ObservableObject {
         client?.sendInput(event)
     }
 
-    func selectRemoteDisplay(_ displayID: UInt32) {
+    func selectRemoteDisplay(_ displayID: UInt32, preserveFrame: Bool = false) {
         guard phase == .previewing || phase == .controlling,
               remoteDisplays.contains(where: { $0.id == displayID }),
               selectedRemoteDisplayID != displayID else { return }
         selectedRemoteDisplayID = displayID
-        currentFrame = nil
+        if !preserveFrame { currentFrame = nil }
         client?.sendInput(RemoteInputEvent(kind: .selectDisplay, displayID: displayID))
+    }
+
+    func crossRemoteDisplay(_ edge: RemoteDisplayEdge, at position: Double) -> RemoteDisplayTransition? {
+        guard let selectedRemoteDisplayID,
+              let transition = remoteDisplayTransition(
+                from: selectedRemoteDisplayID,
+                through: edge,
+                at: position,
+                displays: remoteDisplays
+              ) else { return nil }
+        selectRemoteDisplay(transition.displayID, preserveFrame: true)
+        return transition
     }
 
     func sendText(_ text: String) {

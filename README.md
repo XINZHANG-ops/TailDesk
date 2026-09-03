@@ -33,7 +33,9 @@ On the controller Mac:
 If the controlled Mac has multiple displays, its display tabs remain visible
 above the preview and in the Mac window toolbar during control. On iPhone the
 display cards remain beside the compact controls. Pointer coordinates follow
-the selected display. During Mac control, move the pointer outside the remote
+the selected display. While dragging, hold the pointer at a display edge for
+about 0.4 seconds to carry the item onto the physically adjacent display; this
+works from both Mac and iPhone controllers. During Mac control, move the pointer outside the remote
 screen content (or to the top edge when it fills the window) to reveal the exit
 button; it stays hidden while unused.
 

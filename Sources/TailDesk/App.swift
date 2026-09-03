@@ -248,7 +248,8 @@ struct ContentView: View {
                 ZStack {
                     RemoteDesktopView(
                         frame: model.currentFrame,
-                        onControlRevealZoneChanged: setEdgeControlsActive
+                        onControlRevealZoneChanged: setEdgeControlsActive,
+                        onCrossDisplayEdge: model.crossRemoteDisplay
                     ) { event in
                         model.sendInput(event)
                     }

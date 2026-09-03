@@ -191,7 +191,8 @@ private struct RemoteSessionView: View {
                 isInteractive: model.phase == .controlling,
                 rotationQuarterTurns: rotationQuarterTurns,
                 sendInput: model.sendInput,
-                onCopySuggested: showQuickCopy
+                onCopySuggested: showQuickCopy,
+                onCrossDisplayEdge: model.crossRemoteDisplay
             )
             .ignoresSafeArea(.container)
 

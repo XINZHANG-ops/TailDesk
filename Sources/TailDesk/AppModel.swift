@@ -337,12 +337,24 @@ final class AppModel: ObservableObject {
         viewerClient?.sendInput(event)
     }
 
-    func selectRemoteDisplay(_ displayID: UInt32) {
+    func selectRemoteDisplay(_ displayID: UInt32, preserveFrame: Bool = false) {
         guard isConnected, remoteDisplays.contains(where: { $0.id == displayID }),
               selectedRemoteDisplayID != displayID else { return }
         selectedRemoteDisplayID = displayID
-        currentFrame = nil
+        if !preserveFrame { currentFrame = nil }
         viewerClient?.sendInput(RemoteInputEvent(kind: .selectDisplay, displayID: displayID))
+    }
+
+    func crossRemoteDisplay(_ edge: RemoteDisplayEdge, at position: Double) -> RemoteDisplayTransition? {
+        guard let selectedRemoteDisplayID,
+              let transition = remoteDisplayTransition(
+                from: selectedRemoteDisplayID,
+                through: edge,
+                at: position,
+                displays: remoteDisplays
+              ) else { return nil }
+        selectRemoteDisplay(transition.displayID, preserveFrame: true)
+        return transition
     }
 
     func requestScreenPermission() {
