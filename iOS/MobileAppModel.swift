@@ -33,6 +33,8 @@ final class MobileAppModel: ObservableObject {
     private var audioPlayer: RemoteAudioPlayer?
     private var timeoutTask: Task<Void, Never>?
     private var sharedPasteboardChangeCount: Int?
+    private var remotePointerPosition: CGPoint?
+    private var previousVirtualLeftClickTime: TimeInterval = 0
 
     init() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
@@ -42,6 +44,8 @@ final class MobileAppModel: ObservableObject {
 #if DEBUG
         assert(Self.phoneClipboardChanged(1, since: nil))
         assert(!Self.phoneClipboardChanged(1, since: 1))
+        assert(Self.virtualClickCount(previousTime: 1, time: 1.3) == 2)
+        assert(Self.virtualClickCount(previousTime: 1, time: 1.5) == 1)
 #endif
     }
 
@@ -76,6 +80,8 @@ final class MobileAppModel: ObservableObject {
         remoteDisplays = []
         selectedRemoteDisplayID = nil
         sharedPasteboardChangeCount = nil
+        remotePointerPosition = nil
+        previousVirtualLeftClickTime = 0
         canPaste = UIPasteboard.general.hasStrings
         setStatus("正在连接 \(device.name)", isError: false)
 
@@ -163,13 +169,40 @@ final class MobileAppModel: ObservableObject {
         client?.sendInput(event)
     }
 
+    func updateRemotePointerPosition(_ point: CGPoint) {
+        remotePointerPosition = point
+    }
+
+    @discardableResult
+    func clickRemoteMouse(rightButton: Bool) -> Bool {
+        guard let point = remotePointerPosition else { return false }
+        let clickCount: Int
+        if rightButton {
+            clickCount = 1
+        } else {
+            let now = ProcessInfo.processInfo.systemUptime
+            clickCount = Self.virtualClickCount(previousTime: previousVirtualLeftClickTime, time: now)
+            previousVirtualLeftClickTime = clickCount == 2 ? 0 : now
+        }
+        let down: RemoteInputEvent.Kind = rightButton ? .rightMouseDown : .leftMouseDown
+        let up: RemoteInputEvent.Kind = rightButton ? .rightMouseUp : .leftMouseUp
+        sendInput(RemoteInputEvent(kind: down, x: point.x, y: point.y, clickCount: clickCount))
+        sendInput(RemoteInputEvent(kind: up, x: point.x, y: point.y, clickCount: clickCount))
+        return true
+    }
+
     func selectRemoteDisplay(_ displayID: UInt32, preserveFrame: Bool = false) {
         guard phase == .previewing || phase == .controlling,
               remoteDisplays.contains(where: { $0.id == displayID }),
               selectedRemoteDisplayID != displayID else { return }
         selectedRemoteDisplayID = displayID
+        remotePointerPosition = nil
         if !preserveFrame { currentFrame = nil }
         client?.sendInput(RemoteInputEvent(kind: .selectDisplay, displayID: displayID))
+    }
+
+    private static func virtualClickCount(previousTime: TimeInterval, time: TimeInterval) -> Int {
+        previousTime > 0 && time - previousTime <= 0.4 ? 2 : 1
     }
 
     func crossRemoteDisplay(_ edge: RemoteDisplayEdge, at position: Double) -> RemoteDisplayTransition? {

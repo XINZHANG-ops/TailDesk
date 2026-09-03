@@ -191,6 +191,7 @@ private struct RemoteSessionView: View {
                 isInteractive: model.phase == .controlling,
                 rotationQuarterTurns: rotationQuarterTurns,
                 sendInput: model.sendInput,
+                onPointerPositionChanged: model.updateRemotePointerPosition,
                 onCopySuggested: showQuickCopy,
                 onCrossDisplayEdge: model.crossRemoteDisplay
             )
@@ -223,7 +224,7 @@ private struct RemoteSessionView: View {
                     }
                     Spacer()
                     if model.phase == .controlling {
-                        Text("单指移动 · 点按左键 · 长按精确点击 · 停稳震动后拖拽 · 双指滚动")
+                        Text("单指移动 · 长按精确定位 · 虚拟鼠标支持单双击和右键 · 双指滚动")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.8))
                             .padding(8)
@@ -231,6 +232,13 @@ private struct RemoteSessionView: View {
                             .padding(.bottom, 8)
                     }
                 }
+            }
+
+            if model.phase == .controlling && !usesCompactControls {
+                virtualMousePad
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
 
             RemoteKeyboardCapture(active: $keyboardActive, sendText: model.sendText, sendKey: model.sendKey)
@@ -294,8 +302,8 @@ private struct RemoteSessionView: View {
         let displayCount = model.remoteDisplays.count > 1 ? model.remoteDisplays.count : 0
         let shortcutCount = (showShortcuts && quickCopyVisible ? 1 : 0)
             + (showShortcuts && model.canPaste ? 1 : 0)
-        let buttonCount = 1 + displayCount + shortcutCount
-        let groupCount = 1 + (displayCount > 0 ? 1 : 0) + (shortcutCount > 0 ? 1 : 0)
+        let buttonCount = 3 + displayCount + shortcutCount
+        let groupCount = 2 + (displayCount > 0 ? 1 : 0) + (shortcutCount > 0 ? 1 : 0)
         let panelLength = CGFloat(
             buttonCount * 38
                 + max(0, buttonCount - groupCount) * 4
@@ -337,6 +345,8 @@ private struct RemoteSessionView: View {
         if !dictation.isRecording && !keyboardActive && (quickCopyVisible || model.canPaste) {
             compactActionGroup { compactClipboardButtons }
         }
+
+        compactActionGroup { compactMouseButtons() }
     }
 
     @ViewBuilder private var compactDisplayButtons: some View {
@@ -368,6 +378,34 @@ private struct RemoteSessionView: View {
                 model.pasteRemoteClipboard()
             }
             .transition(.scale.combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder private func compactMouseButtons(size: CGFloat = 38) -> some View {
+        compactActionButton("computermouse", color: .cyan, badge: "L", size: size, label: "鼠标左键") {
+            virtualMouseClick(rightButton: false)
+        }
+        compactActionButton("computermouse", color: .purple, badge: "R", size: size, label: "鼠标右键") {
+            virtualMouseClick(rightButton: true)
+        }
+    }
+
+    private var virtualMousePad: some View {
+        HStack(spacing: 4) { compactMouseButtons(size: 48) }
+            .padding(4)
+            .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 15))
+            .overlay {
+                RoundedRectangle(cornerRadius: 15)
+                    .stroke(.cyan.opacity(0.24), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
+    }
+
+    private func virtualMouseClick(rightButton: Bool) {
+        guard model.clickRemoteMouse(rightButton: rightButton) else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if !rightButton {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showQuickCopy() }
         }
     }
 
@@ -410,14 +448,24 @@ private struct RemoteSessionView: View {
         _ systemImage: String,
         color: Color,
         isActive: Bool = false,
+        badge: String? = nil,
+        size: CGFloat = 38,
         label: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.subheadline.weight(.semibold))
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 8, weight: .black, design: .rounded))
+                        .padding(2)
+                        .background(Color(red: 0.025, green: 0.07, blue: 0.15), in: Circle())
+                }
+            }
                 .foregroundStyle(isActive ? .white : color)
-                .frame(width: 38, height: 38)
+                .frame(width: size, height: size)
                 .background(
                     color.opacity(isActive ? 0.58 : 0.16),
                     in: RoundedRectangle(cornerRadius: 11)

@@ -21,12 +21,14 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
     let isInteractive: Bool
     let rotationQuarterTurns: Int
     let sendInput: (RemoteInputEvent) -> Void
+    let onPointerPositionChanged: (CGPoint) -> Void
     let onCopySuggested: () -> Void
     let onCrossDisplayEdge: (RemoteDisplayEdge, Double) -> RemoteDisplayTransition?
 
     func makeUIView(context: Context) -> MobileRemoteCanvas {
         let view = MobileRemoteCanvas()
         view.sendInput = sendInput
+        view.onPointerPositionChanged = onPointerPositionChanged
         view.onCopySuggested = onCopySuggested
         view.onCrossDisplayEdge = onCrossDisplayEdge
         return view
@@ -37,6 +39,7 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
         view.isInteractive = isInteractive
         view.rotationQuarterTurns = rotationQuarterTurns
         view.sendInput = sendInput
+        view.onPointerPositionChanged = onPointerPositionChanged
         view.onCopySuggested = onCopySuggested
         view.onCrossDisplayEdge = onCrossDisplayEdge
     }
@@ -44,6 +47,7 @@ struct MobileRemoteDesktopView: UIViewRepresentable {
 
 final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     var sendInput: (RemoteInputEvent) -> Void = { _ in }
+    var onPointerPositionChanged: (CGPoint) -> Void = { _ in }
     var onCopySuggested: () -> Void = {}
     var onCrossDisplayEdge: (RemoteDisplayEdge, Double) -> RemoteDisplayTransition? = { _, _ in nil }
     var isInteractive = false {
@@ -508,6 +512,7 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     }
 
     private func send(_ kind: RemoteInputEvent.Kind, _ point: CGPoint, clickCount: Int? = nil) {
+        onPointerPositionChanged(point)
         sendInput(RemoteInputEvent(kind: kind, x: point.x, y: point.y, clickCount: clickCount))
     }
 

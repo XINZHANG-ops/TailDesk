@@ -54,7 +54,8 @@ The iPhone target requires the full Xcode app and iOS 17 or later:
 The QR code contains only the online Macs' MagicDNS names. It contains no IP
 address, password, pairing key, or Tailscale credential. The iPhone supports
 single-finger pointer movement, tap-to-click, double-tap-to-double-click, tap-then-hold dragging,
-two-finger right-click and scrolling, remote text input, and clipboard text.
+dedicated on-screen left/right mouse buttons, two-finger right-click and scrolling,
+remote text input, and clipboard text.
 The connection stays active for background audio;
 returning to the app requests a fresh video key frame so the picture resumes.
 
