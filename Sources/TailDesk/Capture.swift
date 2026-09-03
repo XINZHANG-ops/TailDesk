@@ -186,7 +186,7 @@ private func isFreshVideoFrame(_ timestamp: CMTime, now: CMTime = CMClockGetTime
 }
 
 private func captureDimensions(width: Int, height: Int) -> (width: Int, height: Int) {
-    let scale = min(1, min(2560.0 / Double(width), 1440.0 / Double(height)))
+    let scale = min(1, min(3200.0 / Double(width), 1800.0 / Double(height)))
     return (
         max(2, Int(Double(width) * scale) / 2 * 2),
         max(2, Int(Double(height) * scale) / 2 * 2)
@@ -202,9 +202,11 @@ enum CaptureSelfCheck {
         let fullHD = captureDimensions(width: 1920, height: 1080)
         precondition(fullHD.width == 1920 && fullHD.height == 1080)
         let retina = captureDimensions(width: 3024, height: 1964)
-        precondition(retina.width <= 2560 && retina.height == 1440)
+        precondition(retina.width == 2770 && retina.height == 1800)
         let quadHD = captureDimensions(width: 2560, height: 1440)
         precondition(quadHD.width == 2560 && quadHD.height == 1440)
+        let ultraHD = captureDimensions(width: 3840, height: 2160)
+        precondition(ultraHD.width == 3200 && ultraHD.height == 1800)
     }
 }
 

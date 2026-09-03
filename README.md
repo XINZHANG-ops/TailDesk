@@ -84,7 +84,7 @@ rejected without interrupting the active controller, preventing control loops.
 ## Prototype limits
 
 - One controller at a time; multiple host displays can be switched during a session
-- Low-latency H.264 over TCP, up to 2560×1440 at 60 fps and about 16 Mbps
+- Low-latency H.264 over TCP, up to 3200×1800 at 60 fps and about 24 Mbps
 - Low-latency 48 kHz stereo Float32 PCM audio (about 3.1 Mbps)
 - No microphone, symbolic links in clipboard folders, or adaptive bitrate yet
 - Physical-keyboard shortcuts on iPhone are not mapped yet
