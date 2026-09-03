@@ -390,6 +390,20 @@ private struct RemoteSessionView: View {
 
     @ViewBuilder private var compactActionButtons: some View {
         compactControlMenu
+        if model.remoteDisplays.count > 1 {
+            ForEach(model.remoteDisplays) { display in
+                let selected = model.selectedRemoteDisplayID == display.id
+                compactActionButton(
+                    display.isMain ? "display" : "rectangle.on.rectangle",
+                    color: .cyan,
+                    isActive: selected,
+                    label: display.name
+                ) {
+                    model.selectRemoteDisplay(display.id)
+                }
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
         if !dictation.isRecording && !keyboardActive && quickCopyVisible {
             compactActionButton("doc.on.doc.fill", color: .green, label: "复制") {
                 model.copyRemoteSelection()
@@ -491,10 +505,6 @@ private struct RemoteSessionView: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer()
-            }
-
-            if model.remoteDisplays.count > 1 {
-                displayPicker
             }
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {

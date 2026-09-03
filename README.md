@@ -30,11 +30,12 @@ On the controller Mac:
 3. Click the preview to enter control; exit control to disconnect and return
    to the device menu.
 
-If the controlled Mac has multiple displays, choose a display from the tabs
-above the preview or remote-control view. Pointer coordinates follow the
-selected display. During control, move the pointer outside the remote screen
-content (or to the top edge when it fills the window) to reveal the display
-and exit controls; they stay hidden while unused.
+If the controlled Mac has multiple displays, its display tabs remain visible
+above the preview and in the Mac window toolbar during control. On iPhone the
+display cards remain beside the compact controls. Pointer coordinates follow
+the selected display. During Mac control, move the pointer outside the remote
+screen content (or to the top edge when it fills the window) to reveal the exit
+button; it stays hidden while unused.
 
 ## iPhone controller
 

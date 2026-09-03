@@ -162,6 +162,13 @@ struct ContentView: View {
             }
             .padding(immersive ? 0 : 20)
         }
+        .toolbar {
+            if immersive && model.remoteDisplays.count > 1 {
+                ToolbarItem(placement: .principal) {
+                    displayPicker
+                }
+            }
+        }
         .onAppear { model.startAutomatically() }
         .onChange(of: selection) { _, selection in
             previewTask?.cancel()
@@ -249,12 +256,7 @@ struct ContentView: View {
 
                     VStack {
                         if edgeControlsVisible {
-                            HStack(spacing: 8) {
-                                exitControlButton
-                                if model.remoteDisplays.count > 1 {
-                                    displayPicker
-                                }
-                            }
+                            exitControlButton
                             .onHover { hovering in
                                 if hovering { setEdgeControlsActive(true) }
                             }
