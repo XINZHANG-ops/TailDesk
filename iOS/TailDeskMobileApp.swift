@@ -167,74 +167,6 @@ private struct QRScannerView: UIViewControllerRepresentable {
     }
 }
 
-private enum CompactControlAxis {
-    case horizontal
-    case vertical
-}
-
-private struct CompactControlPlacement {
-    let axis: CompactControlAxis
-    let center: CGPoint
-}
-
-private func compactControlPlacement(
-    contentRect: CGRect?,
-    in bounds: CGRect,
-    safeArea: EdgeInsets,
-    preferTrailing: Bool
-) -> CompactControlPlacement {
-    let sideCenterY = min(
-        bounds.maxY - safeArea.bottom - 78,
-        bounds.minY + safeArea.top + 78
-    )
-    guard let contentRect else {
-        return CompactControlPlacement(
-            axis: .vertical,
-            center: CGPoint(x: preferTrailing ? bounds.maxX - 28 : bounds.minX + 28, y: sideCenterY)
-        )
-    }
-
-    enum Edge { case leading, trailing, top, bottom }
-    let leadingSpace = max(0, contentRect.minX - bounds.minX - safeArea.leading)
-    let trailingSpace = max(0, bounds.maxX - safeArea.trailing - contentRect.maxX)
-    let candidates: [(Edge, CGFloat)] = preferTrailing
-        ? [(.trailing, trailingSpace), (.leading, leadingSpace), (.bottom, bounds.maxY - contentRect.maxY), (.top, contentRect.minY)]
-        : [(.leading, leadingSpace), (.trailing, trailingSpace), (.bottom, bounds.maxY - contentRect.maxY), (.top, contentRect.minY)]
-    let best = candidates.dropFirst().reduce(candidates[0]) { $1.1 > $0.1 ? $1 : $0 }
-
-    guard best.1 >= 48 else {
-        return CompactControlPlacement(
-            axis: .vertical,
-            center: CGPoint(
-                x: preferTrailing ? bounds.maxX - safeArea.trailing - 28 : bounds.minX + safeArea.leading + 28,
-                y: sideCenterY
-            )
-        )
-    }
-
-    switch best.0 {
-    case .leading:
-        return CompactControlPlacement(
-            axis: .vertical,
-            center: CGPoint(x: bounds.minX + safeArea.leading + best.1 / 2, y: sideCenterY)
-        )
-    case .trailing:
-        return CompactControlPlacement(
-            axis: .vertical,
-            center: CGPoint(x: bounds.maxX - safeArea.trailing - best.1 / 2, y: sideCenterY)
-        )
-    case .top, .bottom:
-        let sideInset: CGFloat = 78
-        return CompactControlPlacement(
-            axis: .horizontal,
-            center: CGPoint(
-                x: preferTrailing ? bounds.maxX - sideInset : bounds.minX + sideInset,
-                y: best.0 == .top ? bounds.minY + best.1 / 2 : bounds.maxY - best.1 / 2
-            )
-        )
-    }
-}
-
 private struct RemoteSessionView: View {
     @ObservedObject var model: MobileAppModel
     let device: SavedMac
@@ -349,33 +281,7 @@ private struct RemoteSessionView: View {
     }
 
     private func compactControls(in geometry: GeometryProxy) -> some View {
-        let bounds = CGRect(origin: .zero, size: geometry.size)
-        let imageSize = model.currentFrame.map { CGSize(width: $0.width, height: $0.height) }
-        let contentRect = imageSize.flatMap {
-            mobileRemoteContentRect(imageSize: $0, in: bounds, quarterTurns: rotationQuarterTurns)
-        }
-        let placement = compactControlPlacement(
-            contentRect: contentRect,
-            in: bounds,
-            safeArea: geometry.safeAreaInsets,
-            preferTrailing: rotationQuarterTurns != 0
-        )
-#if DEBUG
-        let testPlacement = compactControlPlacement(
-            contentRect: CGRect(x: 75, y: 0, width: 694, height: 390),
-            in: CGRect(x: 0, y: 0, width: 844, height: 390),
-            safeArea: EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 21),
-            preferTrailing: false
-        )
-        assert(testPlacement.axis == .vertical && testPlacement.center.x > 769 && testPlacement.center.y < 100)
-#endif
-        return Group {
-            if placement.axis == .vertical {
-                VStack(spacing: 7) { compactActionButtons }
-            } else {
-                HStack(spacing: 7) { compactActionButtons }
-            }
-        }
+        VStack(spacing: 7) { compactActionButtons }
         .padding(5)
         .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
         .overlay {
@@ -383,7 +289,9 @@ private struct RemoteSessionView: View {
                 .stroke(.cyan.opacity(0.24), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
-        .position(placement.center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.top, geometry.safeAreaInsets.top + 8)
+        .padding(.trailing, geometry.safeAreaInsets.trailing + 8)
         .animation(.snappy(duration: 0.22), value: quickCopyVisible)
         .animation(.snappy(duration: 0.22), value: model.canPaste)
     }
