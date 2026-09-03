@@ -290,11 +290,17 @@ private struct RemoteSessionView: View {
         let trailingSpace = max(0, trailingEdge - (contentRect?.maxX ?? trailingEdge))
         let centerX = trailingSpace >= 48 ? trailingEdge - trailingSpace / 2 : trailingEdge - 28
         let showShortcuts = !dictation.isRecording && !keyboardActive
-        let buttonCount = 1
-            + (model.remoteDisplays.count > 1 ? model.remoteDisplays.count : 0)
-            + (showShortcuts && quickCopyVisible ? 1 : 0)
+        let displayCount = model.remoteDisplays.count > 1 ? model.remoteDisplays.count : 0
+        let shortcutCount = (showShortcuts && quickCopyVisible ? 1 : 0)
             + (showShortcuts && model.canPaste ? 1 : 0)
-        let panelLength = CGFloat(buttonCount * 38 + max(0, buttonCount - 1) * 7 + 10)
+        let buttonCount = 1 + displayCount + shortcutCount
+        let groupCount = 1 + (displayCount > 0 ? 1 : 0) + (shortcutCount > 0 ? 1 : 0)
+        let panelLength = CGFloat(
+            buttonCount * 38
+                + max(0, buttonCount - groupCount) * 4
+                + groupCount * 8
+                + max(0, groupCount - 1) * 9
+        )
         let rotated = rotationQuarterTurns != 0
         let bottomEdge = bounds.maxY - geometry.safeAreaInsets.bottom
         let bottomSpace = max(0, bottomEdge - (contentRect?.maxY ?? bottomEdge))
@@ -302,22 +308,15 @@ private struct RemoteSessionView: View {
             ? (bottomSpace > 0 ? bottomEdge - bottomSpace / 2 : bottomEdge - 28)
             : geometry.safeAreaInsets.top + 8 + panelLength / 2
 #if DEBUG
-        assert(5 * 38 + 4 * 7 + 10 == 228)
+        assert(panelLength >= CGFloat(buttonCount * 38))
 #endif
         return Group {
             if rotated {
-                HStack(spacing: 7) { compactActionButtons }
+                HStack(spacing: 9) { compactActionGroups }
             } else {
-                VStack(spacing: 7) { compactActionButtons }
+                VStack(spacing: 9) { compactActionGroups }
             }
         }
-        .padding(5)
-        .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(.cyan.opacity(0.24), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
         .fixedSize()
         .position(
             x: rotated ? bounds.midX : centerX,
@@ -327,23 +326,35 @@ private struct RemoteSessionView: View {
         .animation(.snappy(duration: 0.22), value: model.canPaste)
     }
 
-    @ViewBuilder private var compactActionButtons: some View {
-        compactControlMenu
+    @ViewBuilder private var compactActionGroups: some View {
+        compactActionGroup { compactControlMenu }
+
         if model.remoteDisplays.count > 1 {
-            ForEach(model.remoteDisplays) { display in
-                let selected = model.selectedRemoteDisplayID == display.id
-                compactActionButton(
-                    display.isMain ? "display" : "rectangle.on.rectangle",
-                    color: .cyan,
-                    isActive: selected,
-                    label: display.name
-                ) {
-                    model.selectRemoteDisplay(display.id)
-                }
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
+            compactActionGroup { compactDisplayButtons }
         }
-        if !dictation.isRecording && !keyboardActive && quickCopyVisible {
+
+        if !dictation.isRecording && !keyboardActive && (quickCopyVisible || model.canPaste) {
+            compactActionGroup { compactClipboardButtons }
+        }
+    }
+
+    @ViewBuilder private var compactDisplayButtons: some View {
+        ForEach(model.remoteDisplays) { display in
+            let selected = model.selectedRemoteDisplayID == display.id
+            compactActionButton(
+                display.isMain ? "display" : "rectangle.on.rectangle",
+                color: .cyan,
+                isActive: selected,
+                label: display.name
+            ) {
+                model.selectRemoteDisplay(display.id)
+            }
+            .accessibilityAddTraits(selected ? .isSelected : [])
+        }
+    }
+
+    @ViewBuilder private var compactClipboardButtons: some View {
+        if quickCopyVisible {
             compactActionButton("doc.on.doc.fill", color: .green, label: "复制") {
                 model.copyRemoteSelection()
                 quickCopyDismissTask?.cancel()
@@ -351,12 +362,31 @@ private struct RemoteSessionView: View {
             }
             .transition(.scale.combined(with: .opacity))
         }
-        if !dictation.isRecording && !keyboardActive && model.canPaste {
+        if model.canPaste {
             compactActionButton("doc.on.clipboard.fill", color: .orange, label: "粘贴") {
                 model.pasteRemoteClipboard()
             }
             .transition(.scale.combined(with: .opacity))
         }
+    }
+
+    private func compactActionGroup<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Group {
+            if rotationQuarterTurns != 0 {
+                HStack(spacing: 4) { content() }
+            } else {
+                VStack(spacing: 4) { content() }
+            }
+        }
+        .padding(4)
+        .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 15))
+        .overlay {
+            RoundedRectangle(cornerRadius: 15)
+                .stroke(.cyan.opacity(0.24), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
     }
 
     private var compactControlMenu: some View {
