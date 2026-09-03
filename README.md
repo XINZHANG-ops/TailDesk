@@ -65,8 +65,9 @@ item-count limit, and the receiver keeps a disk-space safety reserve. Starting a
 new file transfer invalidates the previous Finder clipboard immediately; the new
 item becomes pasteable atomically when its transfer finishes. Received items are
 stored under TailDesk's Application Support folder without changing their visible
-file names. Transfers already in progress continue after returning to preview,
-which shows their percentage and briefly confirms when an item is ready. A
+file names. Sending and receiving progress appears immediately, and video frames
+are dropped instead of queued when a clipboard transfer saturates the connection.
+Transfers already in progress continue after returning to preview. A
 sidebar action restores the latest item if another clipboard utility replaces it.
 iPhone clipboard synchronization remains text-only.
 

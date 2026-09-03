@@ -67,11 +67,11 @@ final class HostServer {
     }
 
     func sendVideoConfiguration(_ data: Data) {
-        peer?.send(.videoConfiguration, payload: data)
+        peer?.sendVideoConfiguration(data)
     }
 
     func sendVideoFrame(_ data: Data) {
-        peer?.send(.videoFrame, payload: data)
+        peer?.sendVideoFrame(data)
     }
 
     func sendAudioFrame(_ data: Data) {
@@ -168,8 +168,11 @@ private final class HostPeer {
 
     private let connection: NWConnection
     private let parser = WireParser()
+    private let videoSendLock = NSLock()
     private var authenticated = false
     private var ended = false
+    private var videoFramesInFlight = 0
+    private var mustSendNextVideoFrame = false
 
     var isAuthenticated: Bool { authenticated }
 
@@ -225,6 +228,30 @@ private final class HostPeer {
                 self?.cancel()
             }
         })
+    }
+
+    func sendVideoConfiguration(_ data: Data) {
+        videoSendLock.lock()
+        mustSendNextVideoFrame = true
+        videoSendLock.unlock()
+        send(.videoConfiguration, payload: data)
+    }
+
+    func sendVideoFrame(_ data: Data) {
+        videoSendLock.lock()
+        guard canEnqueueVideoFrame(inFlight: videoFramesInFlight, mustSendNext: mustSendNextVideoFrame) else {
+            videoSendLock.unlock()
+            return
+        }
+        mustSendNextVideoFrame = false
+        videoFramesInFlight += 1
+        videoSendLock.unlock()
+        send(.videoFrame, payload: data) { [weak self] _ in
+            guard let self else { return }
+            videoSendLock.lock()
+            videoFramesInFlight = max(0, videoFramesInFlight - 1)
+            videoSendLock.unlock()
+        }
     }
 
     private func receive() {
@@ -426,6 +453,10 @@ private func shouldYieldSimultaneousDial(local: String?, remote: String) -> Bool
     return local < remote
 }
 
+private func canEnqueueVideoFrame(inFlight: Int, mustSendNext: Bool) -> Bool {
+    inFlight == 0 || mustSendNext
+}
+
 private func tailscaleIPv4Number(_ address: String) -> UInt32? {
     let parts = address.split(separator: ".").compactMap { UInt8($0) }
     guard parts.count == 4 else { return nil }
@@ -437,6 +468,9 @@ enum NetworkingSelfCheck {
         precondition(shouldYieldSimultaneousDial(local: "100.64.0.1", remote: "100.64.0.2"))
         precondition(!shouldYieldSimultaneousDial(local: "100.64.0.2", remote: "100.64.0.1"))
         precondition(!shouldYieldSimultaneousDial(local: nil, remote: "100.64.0.1"))
+        precondition(canEnqueueVideoFrame(inFlight: 0, mustSendNext: false))
+        precondition(!canEnqueueVideoFrame(inFlight: 1, mustSendNext: false))
+        precondition(canEnqueueVideoFrame(inFlight: 1, mustSendNext: true))
     }
 }
 

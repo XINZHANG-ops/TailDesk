@@ -558,7 +558,9 @@ struct ContentView: View {
 
     private var clipboardProgressView: some View {
         HStack(spacing: 9) {
-            Image(systemName: model.clipboardTransferProgress == 1 ? "checkmark" : "folder.badge.arrow.down")
+            Image(systemName: model.clipboardTransferProgress == 1
+                  ? "checkmark"
+                  : (model.clipboardTransferIsSending ? "folder.badge.arrow.up" : "folder.badge.arrow.down"))
                 .font(.caption.bold())
                 .foregroundStyle(.cyan)
                 .frame(width: 24, height: 24)
@@ -567,8 +569,8 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(model.clipboardTransferProgress == 1
-                         ? "\(model.clipboardTransferName ?? "文件") 已可粘贴"
-                         : "正在接收 \(model.clipboardTransferName ?? "文件")")
+                         ? "\(model.clipboardTransferName ?? "文件") \(model.clipboardTransferIsSending ? "已发送" : "已可粘贴")"
+                         : "正在\(model.clipboardTransferIsSending ? "发送" : "接收") \(model.clipboardTransferName ?? "文件")")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)

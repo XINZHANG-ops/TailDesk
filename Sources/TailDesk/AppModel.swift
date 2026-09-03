@@ -32,6 +32,7 @@ final class AppModel: ObservableObject {
     @Published var phoneImportURL: URL?
     @Published private(set) var clipboardTransferName: String?
     @Published private(set) var clipboardTransferProgress: Double?
+    @Published private(set) var clipboardTransferIsSending = false
     @Published private(set) var canRestoreReceivedClipboard = false
 
     let tailscaleAddress = localTailscaleIPv4() ?? "Not detected"
@@ -81,6 +82,9 @@ final class AppModel: ObservableObject {
                     self.startCapture()
                 } else {
                     clipboard?.stop()
+                    self.clipboardTransferName = nil
+                    self.clipboardTransferProgress = nil
+                    self.clipboardTransferIsSending = false
                     if self.sessionState == .beingControlled { self.sessionState = .available }
                     self.stopCapture()
                 }
@@ -291,6 +295,7 @@ final class AppModel: ObservableObject {
         }
         clipboardTransferName = nil
         clipboardTransferProgress = nil
+        clipboardTransferIsSending = false
         canRestoreReceivedClipboard = false
         clipboardProgressDismissTask?.cancel()
         if hadViewerSession { setStatus("Ready", isError: false) }
@@ -307,6 +312,7 @@ final class AppModel: ObservableObject {
         if clipboardTransferProgress == 1 {
             clipboardTransferName = nil
             clipboardTransferProgress = nil
+            clipboardTransferIsSending = false
         }
         sessionState = .controlling
         viewerClipboardSync?.start()
@@ -446,24 +452,27 @@ final class AppModel: ObservableObject {
                     self?.clipboardProgressDismissTask?.cancel()
                     self?.clipboardTransferName = nil
                     self?.clipboardTransferProgress = nil
+                    self?.clipboardTransferIsSending = false
                 }
             }
         }
     }
 
-    private var clipboardProgressHandler: (String, Double?) -> Void {
-        { [weak self] name, progress in
+    private var clipboardProgressHandler: (String, Double?, Bool) -> Void {
+        { [weak self] name, progress, isSending in
             Task { @MainActor in
                 self?.clipboardProgressDismissTask?.cancel()
                 self?.clipboardTransferName = name
                 self?.clipboardTransferProgress = progress
+                self?.clipboardTransferIsSending = isSending
                 guard progress == 1 else { return }
-                self?.canRestoreReceivedClipboard = true
+                if !isSending { self?.canRestoreReceivedClipboard = true }
                 self?.clipboardProgressDismissTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 2_500_000_000)
                     guard !Task.isCancelled else { return }
                     self?.clipboardTransferName = nil
                     self?.clipboardTransferProgress = nil
+                    self?.clipboardTransferIsSending = false
                 }
             }
         }

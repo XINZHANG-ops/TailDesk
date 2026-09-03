@@ -216,7 +216,7 @@ private final class ClipboardTransferGate: @unchecked Sendable {
 final class ClipboardSync {
     var onSend: ClipboardWireSender = { _, completion in completion(false) }
     var onStatus: (String, Bool) -> Void = { _, _ in }
-    var onProgress: (String, Double?) -> Void = { _, _ in }
+    var onProgress: (String, Double?, Bool) -> Void = { _, _, _ in }
 
     private var timer: Timer?
     private var lastChangeCount = NSPasteboard.general.changeCount
@@ -275,7 +275,7 @@ final class ClipboardSync {
                     self?.putTextOnPasteboard(text)
                 case .file(let url):
                     self?.putFileOnPasteboard(url)
-                    self?.onProgress(url.lastPathComponent, 1)
+                    self?.onProgress(url.lastPathComponent, 1, false)
                     self?.onStatus("Clipboard item ready: \(url.lastPathComponent)", false)
                 }
             }
@@ -285,7 +285,7 @@ final class ClipboardSync {
             DispatchQueue.main.async { self?.clearPasteboardForIncomingFile() }
         }, onProgress: { [weak self] name, received, total in
             let progress = total.flatMap { $0 > 0 ? Double(received) / Double($0) : 0 }
-            DispatchQueue.main.async { self?.onProgress(name, progress) }
+            DispatchQueue.main.async { self?.onProgress(name, progress, false) }
         }, onReject: { [weak self] id in
             DispatchQueue.main.async { self?.sendCancellation(id) }
         })
@@ -300,12 +300,10 @@ final class ClipboardSync {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 
-        if let urls = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [NSURL], let first = urls.first {
+        if let value = pasteboard.pasteboardItems?.compactMap({ $0.string(forType: .fileURL) }).first,
+           let first = URL(string: value), first.isFileURL {
             // ponytail: one top-level clipboard item; folders can contain any number of files.
-            sendURL(first as URL)
+            sendURL(first)
         } else if let text = pasteboard.string(forType: .string) {
             sendLegacy(.text(text))
         }
@@ -314,16 +312,25 @@ final class ClipboardSync {
     private func sendURL(_ url: URL) {
         let send = onSend
         let status = onStatus
+        let progress = onProgress
         let gate = transferGate
         let id = UUID()
         let token = gate.begin(id)
+        progress(url.lastPathComponent, nil, true)
         sendQueue.async {
             guard gate.isCurrent(token) else { return }
             do {
                 status("Sending clipboard item: \(url.lastPathComponent)", false)
-                try ClipboardTransferSender.send(url, id: id, using: send) {
-                    !gate.isCurrent(token)
-                }
+                try ClipboardTransferSender.send(
+                    url,
+                    id: id,
+                    using: send,
+                    isCancelled: { !gate.isCurrent(token) },
+                    onProgress: { sent, total in
+                        progress(url.lastPathComponent, total > 0 ? Double(sent) / Double(total) : nil, true)
+                    }
+                )
+                progress(url.lastPathComponent, 1, true)
                 status("Clipboard item sent: \(url.lastPathComponent)", false)
             } catch ClipboardError.transferCancelled {
                 return
@@ -429,7 +436,8 @@ private enum ClipboardTransferSender {
         _ url: URL,
         id: UUID = UUID(),
         using wireSend: @escaping ClipboardWireSender,
-        isCancelled: () -> Bool = { false }
+        isCancelled: () -> Bool = { false },
+        onProgress: (UInt64, UInt64) -> Void = { _, _ in }
     ) throws {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isSymbolicLink != true else { throw ClipboardError.unsupportedItem }
@@ -447,11 +455,17 @@ private enum ClipboardTransferSender {
         )
         guard !isCancelled() else { throw ClipboardError.transferCancelled }
         try sendPacket(.start, payload: ClipboardTransferCodec.encodeStart(start), using: wireSend)
+        var sent: UInt64 = 0
+        let didSend: (Int) -> Void = { count in
+            sent += UInt64(count)
+            onProgress(min(sent, start.size), start.size)
+        }
+        onProgress(0, start.size)
         do {
             if isDirectory {
-                try sendFolder(url, id: id, using: wireSend, isCancelled: isCancelled)
+                try sendFolder(url, id: id, using: wireSend, isCancelled: isCancelled, didSend: didSend)
             } else {
-                try sendFile(url, id: id, using: wireSend, isCancelled: isCancelled)
+                try sendFile(url, id: id, using: wireSend, isCancelled: isCancelled, didSend: didSend)
             }
             guard !isCancelled() else { throw ClipboardError.transferCancelled }
             try sendPacket(.finish, payload: ClipboardTransferCodec.finish(id), using: wireSend)
@@ -504,7 +518,8 @@ private enum ClipboardTransferSender {
         _ url: URL,
         id: UUID,
         using wireSend: @escaping ClipboardWireSender,
-        isCancelled: () -> Bool
+        isCancelled: () -> Bool,
+        didSend: (Int) -> Void
     ) throws {
         try enumerate(url) { item, path, values in
             guard !isCancelled() else { throw ClipboardError.transferCancelled }
@@ -519,7 +534,9 @@ private enum ClipboardTransferSender {
                 permissions: permissions(at: item)
             )
             try sendPacket(.item, payload: ClipboardTransferCodec.encodeItem(metadata), using: wireSend)
-            if !isDirectory { try sendFile(item, id: id, using: wireSend, isCancelled: isCancelled) }
+            if !isDirectory {
+                try sendFile(item, id: id, using: wireSend, isCancelled: isCancelled, didSend: didSend)
+            }
         }
     }
 
@@ -527,7 +544,8 @@ private enum ClipboardTransferSender {
         _ url: URL,
         id: UUID,
         using wireSend: @escaping ClipboardWireSender,
-        isCancelled: () -> Bool
+        isCancelled: () -> Bool,
+        didSend: (Int) -> Void
     ) throws {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -536,6 +554,7 @@ private enum ClipboardTransferSender {
             let data = try handle.read(upToCount: ClipboardTransferCodec.maximumChunkSize) ?? Data()
             guard !data.isEmpty else { return }
             try sendPacket(.chunk, payload: ClipboardTransferCodec.chunk(id: id, data: data), using: wireSend)
+            didSend(data.count)
         }
     }
 
@@ -924,6 +943,8 @@ enum ClipboardSelfCheck {
         var sawInitialProgress = false
         var finalReceived: UInt64 = 0
         var reportedTotal: UInt64?
+        var sentBytes: UInt64 = 0
+        var sentTotal: UInt64 = 0
         try! ClipboardTransferSender.send(source, using: { data, completion in
             precondition(data.count <= ClipboardTransferCodec.maximumChunkSize + 128)
             let messages = try! WireParser().append(WireCodec.frame(.clipboard, payload: data))
@@ -947,6 +968,9 @@ enum ClipboardSelfCheck {
                 reportedTotal = total
             })
             completion(true)
+        }, onProgress: { sent, total in
+            sentBytes = sent
+            sentTotal = total
         })
         precondition(completed.wait(timeout: .now() + 5) == .success && !receiveError)
         let restored = receivedURL!
@@ -955,6 +979,7 @@ enum ClipboardSelfCheck {
         precondition(sawInitialProgress)
         precondition(finalReceived == UInt64(sourceData.count))
         precondition(reportedTotal == UInt64(sourceData.count))
+        precondition(sentBytes == UInt64(sourceData.count) && sentTotal == UInt64(sourceData.count))
         precondition(try! Data(contentsOf: restored.appendingPathComponent("nested/file.txt")) == sourceData)
         var isDirectory: ObjCBool = false
         precondition(fileManager.fileExists(atPath: restored.appendingPathComponent("empty").path, isDirectory: &isDirectory) && isDirectory.boolValue)
