@@ -294,11 +294,23 @@ private struct RemoteSessionView: View {
             + (model.remoteDisplays.count > 1 ? model.remoteDisplays.count : 0)
             + (showShortcuts && quickCopyVisible ? 1 : 0)
             + (showShortcuts && model.canPaste ? 1 : 0)
-        let panelHeight = CGFloat(buttonCount * 38 + max(0, buttonCount - 1) * 7 + 10)
+        let panelLength = CGFloat(buttonCount * 38 + max(0, buttonCount - 1) * 7 + 10)
+        let rotated = rotationQuarterTurns != 0
+        let bottomEdge = bounds.maxY - geometry.safeAreaInsets.bottom
+        let bottomSpace = max(0, bottomEdge - (contentRect?.maxY ?? bottomEdge))
+        let centerY = rotated
+            ? (bottomSpace > 0 ? bottomEdge - bottomSpace / 2 : bottomEdge - 28)
+            : geometry.safeAreaInsets.top + 8 + panelLength / 2
 #if DEBUG
         assert(5 * 38 + 4 * 7 + 10 == 228)
 #endif
-        return VStack(spacing: 7) { compactActionButtons }
+        return Group {
+            if rotated {
+                HStack(spacing: 7) { compactActionButtons }
+            } else {
+                VStack(spacing: 7) { compactActionButtons }
+            }
+        }
         .padding(5)
         .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
         .overlay {
@@ -308,8 +320,8 @@ private struct RemoteSessionView: View {
         .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
         .fixedSize()
         .position(
-            x: centerX,
-            y: geometry.safeAreaInsets.top + 8 + panelHeight / 2
+            x: rotated ? bounds.midX : centerX,
+            y: centerY
         )
         .animation(.snappy(duration: 0.22), value: quickCopyVisible)
         .animation(.snappy(duration: 0.22), value: model.canPaste)
