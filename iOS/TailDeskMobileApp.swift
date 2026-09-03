@@ -182,6 +182,7 @@ private struct RemoteSessionView: View {
     @State private var quickCopyDismissTask: Task<Void, Never>?
     @State private var interfaceOrientationBeforeKeyboard: UIInterfaceOrientation?
     @State private var rotationBeforeKeyboard: Int?
+    @State private var canvasResetID = 0
 
     var body: some View {
         ZStack {
@@ -195,6 +196,7 @@ private struct RemoteSessionView: View {
                 onCopySuggested: showQuickCopy,
                 onCrossDisplayEdge: model.crossRemoteDisplay
             )
+            .id(canvasResetID)
             .ignoresSafeArea(.container)
 
             if model.phase == .connecting || model.currentFrame == nil {
@@ -267,8 +269,9 @@ private struct RemoteSessionView: View {
             restoreLayoutAfterKeyboard()
             model.disconnect()
         }
-        .onChange(of: keyboardActive) { _, active in
-            if !active { restoreLayoutAfterKeyboard() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            restoreLayoutAfterKeyboard()
+            canvasResetID += 1
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.refreshClipboardAvailability() }
@@ -382,11 +385,16 @@ private struct RemoteSessionView: View {
     }
 
     @ViewBuilder private func compactMouseButtons(size: CGFloat = 38) -> some View {
-        compactActionButton("computermouse", color: .cyan, badge: "L", size: size, label: "鼠标左键") {
-            virtualMouseClick(rightButton: false)
-        }
-        compactActionButton("computermouse", color: .purple, badge: "R", size: size, label: "鼠标右键") {
-            virtualMouseClick(rightButton: true)
+        ForEach(rotationQuarterTurns != 0 ? [true, false] : [false, true], id: \.self) { rightButton in
+            compactActionButton(
+                "computermouse",
+                color: rightButton ? .purple : .cyan,
+                badge: rightButton ? "R" : "L",
+                size: size,
+                label: rightButton ? "鼠标右键" : "鼠标左键"
+            ) {
+                virtualMouseClick(rightButton: rightButton)
+            }
         }
     }
 
