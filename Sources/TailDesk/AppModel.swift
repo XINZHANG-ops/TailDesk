@@ -72,6 +72,9 @@ final class AppModel: ObservableObject {
                 self.setStatus("Simultaneous connection resolved: this Mac will be controlled", isError: false)
             }
         }
+        server.onVideoRecoveryNeeded = { [weak self] in
+            Task { @MainActor in self?.captureSession?.requestKeyFrame() }
+        }
         server.onControllerConnected = { [weak self, weak server, weak clipboard] connected in
             Task { @MainActor in
                 guard let self, let server, self.hostServer === server else { return }

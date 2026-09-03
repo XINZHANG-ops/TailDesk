@@ -21,6 +21,7 @@ final class HostServer {
     var onStatus: (String, Bool) -> Void = { _, _ in }
     var onControllerConnected: (Bool) -> Void = { _ in }
     var onYieldToIncoming: () -> Void = {}
+    var onVideoRecoveryNeeded: () -> Void = {}
     var onInput: (RemoteInputEvent) -> Void = { _ in }
     var onClipboard: (Data) -> Void = { _ in }
 
@@ -129,6 +130,7 @@ final class HostServer {
             if !connected { self.peer = nil }
             self.onControllerConnected(connected)
         }
+        peer.onVideoRecoveryNeeded = onVideoRecoveryNeeded
         peer.onInput = onInput
         peer.onClipboard = onClipboard
         peer.start(on: queue)
@@ -163,6 +165,7 @@ final class HostServer {
 private final class HostPeer {
     var onStatus: (String, Bool) -> Void = { _, _ in }
     var onControllerConnected: (Bool) -> Void = { _ in }
+    var onVideoRecoveryNeeded: () -> Void = {}
     var onInput: (RemoteInputEvent) -> Void = { _ in }
     var onClipboard: (Data) -> Void = { _ in }
 
@@ -173,6 +176,8 @@ private final class HostPeer {
     private var ended = false
     private var videoFramesInFlight = 0
     private var mustSendNextVideoFrame = false
+    private var videoRecoveryPending = false
+    private var videoRecoveryRequested = false
 
     var isAuthenticated: Bool { authenticated }
 
@@ -239,9 +244,21 @@ private final class HostPeer {
 
     func sendVideoFrame(_ data: Data) {
         videoSendLock.lock()
-        guard canEnqueueVideoFrame(inFlight: videoFramesInFlight, mustSendNext: mustSendNextVideoFrame) else {
+        guard canEnqueueVideoFrame(
+            inFlight: videoFramesInFlight,
+            mustSendNext: mustSendNextVideoFrame,
+            recoveryPending: videoRecoveryPending
+        ) else {
+            videoRecoveryPending = true
+            let requestRecovery = videoFramesInFlight == 0 && !videoRecoveryRequested
+            if requestRecovery { videoRecoveryRequested = true }
             videoSendLock.unlock()
+            if requestRecovery { onVideoRecoveryNeeded() }
             return
+        }
+        if mustSendNextVideoFrame {
+            videoRecoveryPending = false
+            videoRecoveryRequested = false
         }
         mustSendNextVideoFrame = false
         videoFramesInFlight += 1
@@ -250,7 +267,10 @@ private final class HostPeer {
             guard let self else { return }
             videoSendLock.lock()
             videoFramesInFlight = max(0, videoFramesInFlight - 1)
+            let requestRecovery = videoFramesInFlight == 0 && videoRecoveryPending && !videoRecoveryRequested
+            if requestRecovery { videoRecoveryRequested = true }
             videoSendLock.unlock()
+            if requestRecovery { onVideoRecoveryNeeded() }
         }
     }
 
@@ -453,8 +473,8 @@ private func shouldYieldSimultaneousDial(local: String?, remote: String) -> Bool
     return local < remote
 }
 
-private func canEnqueueVideoFrame(inFlight: Int, mustSendNext: Bool) -> Bool {
-    inFlight == 0 || mustSendNext
+private func canEnqueueVideoFrame(inFlight: Int, mustSendNext: Bool, recoveryPending: Bool) -> Bool {
+    mustSendNext || (inFlight == 0 && !recoveryPending)
 }
 
 private func tailscaleIPv4Number(_ address: String) -> UInt32? {
@@ -468,9 +488,10 @@ enum NetworkingSelfCheck {
         precondition(shouldYieldSimultaneousDial(local: "100.64.0.1", remote: "100.64.0.2"))
         precondition(!shouldYieldSimultaneousDial(local: "100.64.0.2", remote: "100.64.0.1"))
         precondition(!shouldYieldSimultaneousDial(local: nil, remote: "100.64.0.1"))
-        precondition(canEnqueueVideoFrame(inFlight: 0, mustSendNext: false))
-        precondition(!canEnqueueVideoFrame(inFlight: 1, mustSendNext: false))
-        precondition(canEnqueueVideoFrame(inFlight: 1, mustSendNext: true))
+        precondition(canEnqueueVideoFrame(inFlight: 0, mustSendNext: false, recoveryPending: false))
+        precondition(!canEnqueueVideoFrame(inFlight: 1, mustSendNext: false, recoveryPending: false))
+        precondition(!canEnqueueVideoFrame(inFlight: 0, mustSendNext: false, recoveryPending: true))
+        precondition(canEnqueueVideoFrame(inFlight: 1, mustSendNext: true, recoveryPending: true))
     }
 }
 

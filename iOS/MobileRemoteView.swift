@@ -873,6 +873,7 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
         let field = UITextField()
         field.delegate = context.coordinator
         field.text = " "
+        field.addTarget(context.coordinator, action: #selector(Coordinator.textChanged(_:)), for: .editingChanged)
         field.textColor = .clear
         field.tintColor = .clear
         field.autocorrectionType = .no
@@ -903,6 +904,8 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
             self.sendText = sendText
             self.sendKey = sendKey
 #if DEBUG
+            assert(Self.committedText(from: " hello") == "hello")
+            assert(Self.committedText(from: "中文") == "中文")
             assert(Self.deleteRepeatCount(streak: 1) == 1)
             assert(Self.deleteRepeatCount(streak: 8) == 3)
             assert(Self.deleteRepeatCount(streak: 18) == 6)
@@ -912,6 +915,7 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
 
         func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             if string.isEmpty {
+                if textField.markedTextRange != nil { return true }
                 let now = ProcessInfo.processInfo.systemUptime
                 let continuationWindow = deleteStreak >= 4 ? 1.5 : 0.7
                 deleteStreak = now - lastDeleteTime <= continuationWindow ? deleteStreak + 1 : 1
@@ -919,11 +923,19 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
                 for _ in 0..<Self.deleteRepeatCount(streak: deleteStreak) {
                     sendKey(51) // macOS Delete
                 }
-            } else {
-                deleteStreak = 0
-                sendText(string)
+                return false
             }
-            return false
+            deleteStreak = 0
+            return true
+        }
+
+        @objc func textChanged(_ textField: UITextField) {
+            guard textField.markedTextRange == nil else { return }
+            let text = Self.committedText(from: textField.text ?? "")
+            textField.text = " "
+            guard !text.isEmpty else { return }
+            deleteStreak = 0
+            sendText(text)
         }
 
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -938,6 +950,10 @@ struct RemoteKeyboardCapture: UIViewRepresentable {
 
         private static func deleteRepeatCount(streak: Int) -> Int {
             streak >= 30 ? 10 : (streak >= 18 ? 6 : (streak >= 8 ? 3 : 1))
+        }
+
+        private static func committedText(from text: String) -> String {
+            text.first == " " ? String(text.dropFirst()) : text
         }
     }
 }
