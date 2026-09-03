@@ -80,9 +80,9 @@ final class ScreenCaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
             selectedDisplayID: display.displayID
         )
 
-        let scale = min(1, min(1920.0 / Double(display.width), 1080.0 / Double(display.height)))
-        let width = max(2, Int(Double(display.width) * scale) / 2 * 2)
-        let height = max(2, Int(Double(display.height) * scale) / 2 * 2)
+        let dimensions = captureDimensions(width: display.width, height: display.height)
+        let width = dimensions.width
+        let height = dimensions.height
 
         let encoder = try H264Encoder(width: width, height: height)
         encoder.onEncodedFrame = { [weak self] configuration, frame in
@@ -182,12 +182,26 @@ private func isFreshVideoFrame(_ timestamp: CMTime, now: CMTime = CMClockGetTime
     return CMTimeGetSeconds(CMTimeSubtract(now, timestamp)) < 0.1
 }
 
+private func captureDimensions(width: Int, height: Int) -> (width: Int, height: Int) {
+    let scale = min(1, min(2560.0 / Double(width), 1440.0 / Double(height)))
+    return (
+        max(2, Int(Double(width) * scale) / 2 * 2),
+        max(2, Int(Double(height) * scale) / 2 * 2)
+    )
+}
+
 enum CaptureSelfCheck {
     static func run() {
         let now = CMTime(seconds: 10, preferredTimescale: 600)
         precondition(isFreshVideoFrame(CMTime(seconds: 9.95, preferredTimescale: 600), now: now))
         precondition(!isFreshVideoFrame(CMTime(seconds: 9.8, preferredTimescale: 600), now: now))
         precondition(isFreshVideoFrame(.invalid, now: now))
+        let fullHD = captureDimensions(width: 1920, height: 1080)
+        precondition(fullHD.width == 1920 && fullHD.height == 1080)
+        let retina = captureDimensions(width: 3024, height: 1964)
+        precondition(retina.width <= 2560 && retina.height == 1440)
+        let quadHD = captureDimensions(width: 2560, height: 1440)
+        precondition(quadHD.width == 2560 && quadHD.height == 1440)
     }
 }
 
