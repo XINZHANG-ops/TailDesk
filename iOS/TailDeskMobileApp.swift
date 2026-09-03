@@ -281,7 +281,24 @@ private struct RemoteSessionView: View {
     }
 
     private func compactControls(in geometry: GeometryProxy) -> some View {
-        VStack(spacing: 7) { compactActionButtons }
+        let bounds = CGRect(origin: .zero, size: geometry.size)
+        let imageSize = model.currentFrame.map { CGSize(width: $0.width, height: $0.height) }
+        let contentRect = imageSize.flatMap {
+            mobileRemoteContentRect(imageSize: $0, in: bounds, quarterTurns: rotationQuarterTurns)
+        }
+        let trailingEdge = bounds.maxX - geometry.safeAreaInsets.trailing
+        let trailingSpace = max(0, trailingEdge - (contentRect?.maxX ?? trailingEdge))
+        let centerX = trailingSpace >= 48 ? trailingEdge - trailingSpace / 2 : trailingEdge - 28
+        let showShortcuts = !dictation.isRecording && !keyboardActive
+        let buttonCount = 1
+            + (model.remoteDisplays.count > 1 ? model.remoteDisplays.count : 0)
+            + (showShortcuts && quickCopyVisible ? 1 : 0)
+            + (showShortcuts && model.canPaste ? 1 : 0)
+        let panelHeight = CGFloat(buttonCount * 38 + max(0, buttonCount - 1) * 7 + 10)
+#if DEBUG
+        assert(5 * 38 + 4 * 7 + 10 == 228)
+#endif
+        return VStack(spacing: 7) { compactActionButtons }
         .padding(5)
         .background(Color(red: 0.025, green: 0.07, blue: 0.15).opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
         .overlay {
@@ -289,9 +306,11 @@ private struct RemoteSessionView: View {
                 .stroke(.cyan.opacity(0.24), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.top, geometry.safeAreaInsets.top + 8)
-        .padding(.trailing, geometry.safeAreaInsets.trailing + 8)
+        .fixedSize()
+        .position(
+            x: centerX,
+            y: geometry.safeAreaInsets.top + 8 + panelHeight / 2
+        )
         .animation(.snappy(duration: 0.22), value: quickCopyVisible)
         .animation(.snappy(duration: 0.22), value: model.canPaste)
     }
