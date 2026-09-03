@@ -150,6 +150,8 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
         assert(abs(Self.edgeReach(0.94) - 1) < 0.0001)
         assert(Self.outgoingEdge(for: CGPoint(x: 1, y: 0.5), delta: CGPoint(x: 0.01, y: 0)) == .right)
         assert(Self.movesTowardEdge(CGPoint(x: -0.01, y: 0), .left))
+        assert(Self.isAtEdge(CGPoint(x: 0.985, y: 0.5), .right, threshold: 0.02))
+        assert(!Self.isAtEdge(CGPoint(x: 0.97, y: 0.5), .right, threshold: 0.02))
         assert(Self.scrollDelta(for: CGPoint(x: 2, y: 3), quarterTurns: 0) == CGPoint(x: -8, y: -12))
         assert(Self.scrollDelta(for: CGPoint(x: 2, y: 3), quarterTurns: 3) == CGPoint(x: -12, y: 8))
         let phoneBounds = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -366,6 +368,10 @@ final class MobileRemoteCanvas: UIView, UIGestureRecognizerDelegate {
     private func updateDisplayEdgeDwell(for point: CGPoint, delta: CGPoint) {
         if let blockedDisplayEdge, !Self.isAtEdge(point, blockedDisplayEdge, threshold: 0.05) {
             self.blockedDisplayEdge = nil
+        }
+        if let pendingDisplayEdge,
+           Self.isAtEdge(point, pendingDisplayEdge, threshold: 0.02) {
+            return
         }
         guard let edge = Self.outgoingEdge(for: point, delta: delta), edge != blockedDisplayEdge else {
             displayEdgeWorkItem?.cancel()
