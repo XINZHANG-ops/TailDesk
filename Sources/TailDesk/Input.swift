@@ -172,6 +172,16 @@ final class RemoteCanvasView: NSView {
         ))
     }
 
+    override func swipe(with event: NSEvent) {
+        guard isInteractive,
+              let keyCode = remoteSwipeShortcut(deltaX: event.deltaX, deltaY: event.deltaY) else {
+            super.swipe(with: event)
+            return
+        }
+        sendInput(RemoteInputEvent(kind: .keyDown, keyCode: keyCode, flags: RemoteModifier.control))
+        sendInput(RemoteInputEvent(kind: .keyUp, keyCode: keyCode, flags: RemoteModifier.control))
+    }
+
     override func keyDown(with event: NSEvent) {
         guard isInteractive else { return }
         sendInput(RemoteInputEvent(kind: .keyDown, keyCode: event.keyCode, flags: modifierFlags(event)))
@@ -399,6 +409,12 @@ private func mouseClickCount(_ kind: RemoteInputEvent.Kind, _ count: Int) -> Int
     }
 }
 
+private func remoteSwipeShortcut(deltaX: CGFloat, deltaY: CGFloat) -> UInt16? {
+    if abs(deltaY) >= abs(deltaX), deltaY != 0 { return deltaY > 0 ? 126 : 125 }
+    if deltaX != 0 { return deltaX > 0 ? 124 : 123 }
+    return nil
+}
+
 enum InputSelfCheck {
     static func run() {
         precondition(scrollUnit(for: 0) == .line)
@@ -410,5 +426,10 @@ enum InputSelfCheck {
         precondition(!shouldRevealControls(at: CGPoint(x: 50, y: 50), contentRect: content, in: bounds))
         precondition(mouseClickCount(.leftMouseDown, 2) == 2)
         precondition(mouseClickCount(.mouseMove, 2) == nil)
+        precondition(remoteSwipeShortcut(deltaX: 0, deltaY: 1) == 126)
+        precondition(remoteSwipeShortcut(deltaX: 0, deltaY: -1) == 125)
+        precondition(remoteSwipeShortcut(deltaX: 1, deltaY: 0) == 124)
+        precondition(remoteSwipeShortcut(deltaX: -1, deltaY: 0) == 123)
+        precondition(remoteSwipeShortcut(deltaX: 0, deltaY: 0) == nil)
     }
 }
